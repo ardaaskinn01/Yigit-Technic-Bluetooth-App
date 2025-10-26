@@ -50,6 +50,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildPumpControls(app),
             const SizedBox(height: 8),
             _buildValfSection(app),
+            const SizedBox(height: 8),
+            _buildTestModeControls(app),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12.0),
               child: Column(
@@ -504,6 +506,168 @@ class _HomeScreenState extends State<HomeScreen> {
           fontWeight: FontWeight.bold,
           fontSize: 16,
         ),
+      ),
+    );
+  }
+
+  Widget _buildTestModeControls(AppState app) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "OTOMATİK VİTES TEST MODLARI",
+            style: TextStyle(
+              color: Colors.amber,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+
+          // Test modu açıklaması
+          if (app.isTestModeActive)
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    "AKTİF: Test Mod ${app.currentTestMode}",
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    app.testModeDescriptions[app.currentTestMode] ?? "",
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  Text(
+                    "Vites: ${app.gear} | Pompa: ${app.pumpOn ? 'AÇIK' : 'KAPALI'}",
+                    style: const TextStyle(
+                      color: Colors.amber,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 8),
+
+          // Test modu butonları - 2 SIRALI GRID
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4, // 4 buton ilk sırada
+              crossAxisSpacing: 4,
+              mainAxisSpacing: 4,
+              childAspectRatio: 1.2, // Daha küçük butonlar
+            ),
+            itemCount: 7,
+            itemBuilder: (context, index) {
+              int mode = index + 1;
+              bool isActive = app.currentTestMode == mode;
+
+              // Test 7 için özel stil (SÖKME modu)
+              bool isTest7 = mode == 7;
+              Color activeColor = isTest7 ? Colors.redAccent : Colors.amber;
+              Color inactiveColor = isTest7 ? Colors.red.withOpacity(0.3) : Colors.blueGrey.withOpacity(0.7);
+
+              return Tooltip(
+                message: app.testModeDescriptions[mode] ?? "",
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (isActive) {
+                      app.stopTestMode();
+                    } else {
+                      app.startTestMode(mode);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isActive
+                        ? activeColor.withOpacity(0.9)
+                        : inactiveColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      side: BorderSide(
+                        color: isActive ? activeColor : Colors.transparent,
+                        width: 1.5,
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "T$mode",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                      Text(
+                        "${app.testModeDelays[mode]}ms",
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 9,
+                        ),
+                      ),
+                      // Test 7 için özel etiket
+                      if (isTest7)
+                        const Text(
+                          "SÖKME",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 8),
+
+          // Test modu durdurma butonu
+          if (app.isTestModeActive)
+            ElevatedButton.icon(
+              onPressed: () => app.stopTestMode(),
+              icon: const Icon(Icons.stop, color: Colors.white, size: 16),
+              label: Text(
+                "MOD ${app.currentTestMode} DURDUR",
+                style: const TextStyle(color: Colors.white, fontSize: 11),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: app.currentTestMode == 7
+                    ? Colors.redAccent.withOpacity(0.9)
+                    : Colors.redAccent.withOpacity(0.8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
+            ),
+        ],
       ),
     );
   }

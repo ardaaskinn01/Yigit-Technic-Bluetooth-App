@@ -49,9 +49,12 @@ class AppState extends ChangeNotifier {
   Map<String, double> faz2Sonuclar = {}; // Anahtarlar: N436, N440, N436+N440, Kapali
   Map<String, double> faz3Sonuclar = {}; // Anahtarlar: V1, V2, V3_7, V4_6, V5, VR
   double faz4PompaSuresi = 0;
+  String autoCycleMode = '0';
 
   bool isReconnecting = false;
   Timer? _connectionMonitorTimer;
+  Timer? _testModeTimer; // 🔹 BU SATIRI EKLEYİN - Test modu timer'ı
+
 // Getter metodları ekle
   int get elapsedSeconds => _elapsedTestSeconds;
   double get minBasinc => _currentMinPressure;
@@ -90,6 +93,26 @@ class AppState extends ChangeNotifier {
   String connectionMessage = "";
   String? connectingAddress;
   int selectedMode = 0; // 0 = Kapalı
+  int currentTestMode = 0; // 0 = kapalı, 1-7 = test modları
+  bool isTestModeActive = false;
+  final Map<int, double> testModeDelays = {
+    1: 1.0,
+    2: 1.2,
+    3: 0.4,
+    4: 0.7,
+    5: 2.0,
+    6: 5.0,
+    7: 0.1,
+  };
+  final Map<int, String> testModeDescriptions = {
+    1: "Çok Hızlı - Yüksek hız testi",
+    2: "Çok Hızlı - Orta-yüksek hız",
+    3: "Ultra Hızlı - FAZ 0/2 pompa kontrolü",
+    4: "Hızlı - FAZ 4 standart test",
+    5: "Normal - Genel kontrol",
+    6: "Yavaş - Detaylı gözlem",
+    7: "En Hızlı - SÖKME modu",
+  };
 
   void setMode(int mode) {
     selectedMode = mode;
@@ -108,6 +131,56 @@ class AppState extends ChangeNotifier {
     'N437': false,
   };
 
+  void startTestMode(int mode) {
+    if (mode < 1 || mode > 7) return;
+
+    currentTestMode = mode;
+    isTestModeActive = true;
+
+    // Test modu komutunu gönder
+    sendCommand(mode.toString());
+
+    // Test 7 için özel mesaj
+    if (mode == 7) {
+      connectionMessage = "SÖKME MODU AKTİF - Basınç düşürülüyor";
+      logs.add("🚨 SÖKME Modu başlatıldı (0.1ms) - Sistem boşaltılıyor");
+    } else {
+      connectionMessage = "Test Mod $mode aktif: ${testModeDescriptions[mode]}";
+      logs.add("Test Mod $mode başlatıldı (${testModeDelays[mode]}ms bekleme)");
+    }
+
+    notifyListeners();
+  }
+
+// Test modunu durdur
+  void stopTestMode() {
+    // Test 7 için özel log
+    if (currentTestMode == 7) {
+      logs.add("✅ SÖKME Modu durduruldu - Sistem güvenli");
+    }
+
+    currentTestMode = 0;
+    isTestModeActive = false;
+
+    // Test modu timer'ını temizle
+    _testModeTimer?.cancel();
+    _testModeTimer = null;
+
+    // Test modu kapatma komutunu gönder
+    sendCommand("0");
+
+    // Pompayı kapat (test modu bitince)
+    pumpOn = false;
+
+    // Vitesi BOŞ'a al
+    gear = 'BOŞ';
+    updateValvesByGear(gear);
+
+    connectionMessage = "Test modu kapatıldı";
+    logs.add("Test modu durduruldu - Tüm sistem sıfırlandı");
+
+    notifyListeners();
+  }
   Future<void> loadTestsFromLocal() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList('saved_tests') ?? [];
@@ -730,63 +803,32 @@ class AppState extends ChangeNotifier {
 
     final random = Random();
     int mechatronicScore = 0;
+    Timer? _testModeTimer;
 
-    // 🔁 Simülasyon döngüsü
+    // 🔁 Ana simülasyon döngüsü
     Timer.periodic(const Duration(seconds: 2), (t) {
       if (!isConnected) return;
 
-      // 1️⃣ Basınç değeri
+      // Test modu aktifse özel işlemler yap
+      if (isTestModeActive && currentTestMode > 0) {
+        // Test modu simülasyonu burada yapılacak
+        _simulateTestMode();
+        return; // Test modu aktifken normal simülasyonu atla
+      }
+
+      // 1️⃣ Normal modda basınç değeri
       double minPressure = pressureToggle ? 52 : 42;
       double maxPressure = 60;
       pressure = minPressure + random.nextDouble() * (maxPressure - minPressure);
 
       // 2️⃣ Vites durumuna göre valfleri ayarla
-      // Önce tüm valfleri false yap
-      for (var key in ['N433', 'N434', 'N437', 'N438']) {
-        valveStates[key] = false;
-      }
+      _updateValvesByGear(gear);
 
-      // 🔧 Vites -> Valf eşleştirmesi
-      switch (gear) {
-        case '1':
-        case '3':
-          valveStates['N433'] = true;
-          break;
-        case '2':
-        case '4':
-          valveStates['N437'] = true;
-          break;
-        case '5':
-        case '7':
-          valveStates['N434'] = true;
-          break;
-        case '6':
-        case 'R':
-          valveStates['N438'] = true;
-          break;
-        default:
-        // 'BOŞ' veya diğer durumlarda hepsi kapalı
-          break;
-      }
-
-      // 3️⃣ Vites durumuna göre K1 / K2 seçimi
-      if (['1', '3', '5', '7'].contains(gear)) {
-        valveStates['K1'] = true;
-        valveStates['K2'] = false;
-      } else if (['2', '4', '6', 'R'].contains(gear)) {
-        valveStates['K1'] = false;
-        valveStates['K2'] = true;
-      } else {
-        // 'BOŞ' durumunda her ikisi de kapalı
-        valveStates['K1'] = false;
-        valveStates['K2'] = false;
-      }
-
-      // 4️⃣ Basınç Valfi manuel kontrol bilgisi
+      // 3️⃣ Basınç Valfi manuel kontrol bilgisi
       lastMessage =
       '[MOCK] Güncel basınç: ${pressure.toStringAsFixed(2)} bar | N436=${valveStates['N436']} N440=${valveStates['N440']} | Vites=$gear';
 
-      // 5️⃣ Mekatronik Puan
+      // 4️⃣ Mekatronik Puan
       if (testStatus == 'Çalışıyor') {
         mechatronicScore = min(100, mechatronicScore + random.nextInt(3));
         lastMessage += ' | Mekatronik Puan: $mechatronicScore';
@@ -796,6 +838,140 @@ class AppState extends ChangeNotifier {
       logs.add(lastMessage);
       notifyListeners();
     });
+  }
+
+  void _simulateTestMode() {
+    if (!isTestModeActive || currentTestMode == 0) return;
+
+    // Test moduna göre vites döngüsü hızı
+    final delaySeconds = _getTestModeDelay();
+
+    // Test modu timer'ını başlat (eğer başlatılmadıysa)
+    _testModeTimer ??= Timer.periodic(Duration(milliseconds: (delaySeconds * 1000).round()), (timer) {
+      if (!isTestModeActive) {
+        timer.cancel();
+        _testModeTimer = null;
+        return;
+      }
+
+      // Otomatik vites döngüsü
+      _cycleGearsAutomatically();
+
+      // Pompayı otomatik aç (test modlarında pompa genellikle açık olur)
+      pumpOn = true;
+
+      // Basınç simülasyonu - test moduna göre değişken
+      pressure = _simulateTestModePressure();
+
+      lastMessage = '[MOCK] Test Mod $currentTestMode - Vites: $gear | ${testModeDescriptions[currentTestMode]}';
+      logs.add('Test modu aktif: Vites $gear, Pompa: ${pumpOn ? "Açık" : "Kapalı"}');
+
+      notifyListeners();
+    });
+  }
+
+// Test moduna göre gecikme süresi (saniye cinsinden)
+  double _getTestModeDelay() {
+    switch (currentTestMode) {
+      case 1: return 0.5;  // Çok Hızlı - 1.0ms yerine 0.5s (simülasyon için)
+      case 2: return 0.6;  // Çok Hızlı - 1.2ms yerine 0.6s
+      case 3: return 0.2;  // Ultra Hızlı - 0.4ms yerine 0.2s
+      case 4: return 0.35; // Hızlı - 0.7ms yerine 0.35s
+      case 5: return 1.0;  // Normal - 2.0ms yerine 1.0s
+      case 6: return 2.5;  // Yavaş - 5.0ms yerine 2.5s
+      case 7: return 0.05; // En Hızlı - 0.1ms yerine 0.05s
+      default: return 1.0;
+    }
+  }
+
+// Otomatik vites döngüsü
+  void _cycleGearsAutomatically() {
+    final gears = ['1', '2', '3', '4', '5', '6', '7', 'R'];
+    final currentIndex = gears.indexOf(gear);
+    final nextIndex = (currentIndex + 1) % gears.length;
+
+    gear = gears[nextIndex];
+
+    // Vites değişince valfleri güncelle
+    updateValvesByGear(gear);
+
+    logs.add('Test Mod $currentTestMode: Vites $gear\'a geçildi');
+  }
+
+// Test moduna göre basınç simülasyonu
+  double _simulateTestModePressure() {
+    final random = Random();
+    double basePressure;
+
+    switch (currentTestMode) {
+      case 1: // Yüksek hız testi - yüksek basınç
+      case 2: // Orta-yüksek hız
+        basePressure = 55 + random.nextDouble() * 10;
+        break;
+      case 3: // FAZ 0/2 pompa kontrolü - değişken basınç
+        basePressure = 40 + random.nextDouble() * 25;
+        break;
+      case 4: // FAZ 4 standart test - stabil basınç
+        basePressure = 50 + random.nextDouble() * 5;
+        break;
+      case 5: // Genel kontrol - normal basınç
+        basePressure = 48 + random.nextDouble() * 8;
+        break;
+      case 6: // Detaylı gözlem - yavaş değişen basınç
+        basePressure = 45 + random.nextDouble() * 12;
+        break;
+      case 7: // SÖKME modu - düşük basınç (0-10 bar arası)
+        basePressure = random.nextDouble() * 10;
+        break;
+      default:
+        basePressure = 50 + random.nextDouble() * 10;
+    }
+
+    return basePressure;
+  }
+
+// Valfleri güncelleme metodunu ayrı bir metoda taşı
+  void _updateValvesByGear(String currentGear) {
+    // Önce tüm valfleri false yap
+    for (var key in ['N433', 'N434', 'N437', 'N438']) {
+      valveStates[key] = false;
+    }
+
+    // Vites -> Valf eşleştirmesi
+    switch (currentGear) {
+      case '1':
+      case '3':
+        valveStates['N433'] = true;
+        break;
+      case '2':
+      case '4':
+        valveStates['N437'] = true;
+        break;
+      case '5':
+      case '7':
+        valveStates['N434'] = true;
+        break;
+      case '6':
+      case 'R':
+        valveStates['N438'] = true;
+        break;
+      default:
+      // 'BOŞ' veya diğer durumlarda hepsi kapalı
+        break;
+    }
+
+    // Vites durumuna göre K1 / K2 seçimi
+    if (['1', '3', '5', '7'].contains(currentGear)) {
+      valveStates['K1'] = true;
+      valveStates['K2'] = false;
+    } else if (['2', '4', '6', 'R'].contains(currentGear)) {
+      valveStates['K1'] = false;
+      valveStates['K2'] = true;
+    } else {
+      // 'BOŞ' durumunda her ikisi de kapalı
+      valveStates['K1'] = false;
+      valveStates['K2'] = false;
+    }
   }
 
   Future<void> _loadPrefs() async {
@@ -1090,8 +1266,11 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _connectionMonitorTimer?.cancel();
+    _testModeTimer?.cancel(); // 🔹 BU SATIRI EKLEYİN - Timer'ı temizle
     _sub?.cancel();
     _operationTimer?.cancel();
+    _testTimer?.cancel();
+    _phaseTimer?.cancel();
     bt.dispose();
     super.dispose();
   }
