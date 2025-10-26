@@ -20,7 +20,6 @@ class _PressureValveControlsState extends State<PressureValveControls> {
     super.didChangeDependencies();
     if (!_inited) {
       final app = Provider.of<AppState>(context, listen: false);
-      // Başlangıç durumlarını AppState'ten al
       n436Active = app.valveStates['N436'] ?? false;
       n440Active = app.valveStates['N440'] ?? false;
       _inited = true;
@@ -29,83 +28,121 @@ class _PressureValveControlsState extends State<PressureValveControls> {
 
   void _setValve(String key, bool value) {
     final app = Provider.of<AppState>(context, listen: false);
-    // 1) UI state
+
     setState(() {
-      if (key == 'N436') n436Active = value;
-      if (key == 'N440') n440Active = value;
+      if (key == 'N36') n436Active = value;
+      if (key == 'N40') n440Active = value;
     });
-    // 2) AppState'e kaydet (kalıcılık / paylaşım)
-    if (app.setValveState != null) {
-      // Eğer setValveState fonksiyonu eklediysen:
-      app.setValveState(key, value);
-    } else {
-      // fallback: doğrudan valveStates güncelle
-      app.valveStates[key] = value;
-      app.notifyListeners();
-    }
-    // 3) Cihaza komut gönder
-    // Komut protokolünü ESP ile kararlaştır. Örnek:
-    app.sendCommand(value ? '${key}_ON' : '${key}_OFF');
+
+    app.valveStates[key] = value;
+    app.notifyListeners();
+
+    // ✅ Her valf için kendi komutu ayrı gönderiliyor
+    app.sendCommand(value ? '$key' : '$key');
   }
 
   @override
   Widget build(BuildContext context) {
-    final app = Provider.of<AppState>(context, listen: false);
+    final app = Provider.of<AppState>(context);
+    final bothActive = n436Active && n440Active;
 
-    return Row(
-      children: [
-        // N436
-        Expanded(
-          child: Column(
-            children: [
-              const Text('N436',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
-              const SizedBox(height: 6),
-              CustomToggle(
-                value: n436Active,
-                onChanged: (v) => _setValve('N436', v),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
+    // Artık her zaman aktif
+    final isDisabled = false;
 
-        // N440
-        Expanded(
-          child: Column(
-            children: [
-              const Text('N440',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white)),
-              const SizedBox(height: 6),
-              CustomToggle(
-                value: n440Active,
-                onChanged: (v) => _setValve('N440', v),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-
-        // İkisi Birden
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () {
-              final bothActive = n436Active && n440Active;
-              _setValve('N436', !bothActive);
-              _setValve('N440', !bothActive);
-              // ayrıca tek komutla ESP'ye de gönder
-              app.sendCommand(!bothActive ? 'BOTH_ON' : 'BOTH_OFF');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepOrange,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+    return Opacity(
+      opacity: isDisabled ? 0.5 : 1.0,
+      child: IgnorePointer(
+        ignoring: isDisabled,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.2),
+              width: 1.0,
             ),
-            child: const Text('İkisi\nBirden',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: Colors.white)),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  // 🔹 N436 kontrolü
+                  Expanded(
+                    child: Column(
+                      children: [
+                        const Text(
+                          'N436',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        CustomToggle(
+                          value: n436Active,
+                          onChanged: (v) => _setValve('N36', v),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  // 🔹 İkisi birden kontrolü (ama ayrı ayrı komut gönderiyor)
+                  Expanded(
+                    child: Column(
+                      children: [
+                        const Text(
+                          'İkisi Birden',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        CustomToggle(
+                          value: bothActive,
+                          onChanged: (v) {
+                            _setValve('N36', v);
+                            _setValve('N40', v);
+                            // ❌ BOTH_ON / BOTH_OFF komutları artık gönderilmiyor
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  // 🔹 N440 kontrolü
+                  Expanded(
+                    child: Column(
+                      children: [
+                        const Text(
+                          'N440',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        CustomToggle(
+                          value: n440Active,
+                          onChanged: (v) => _setValve('N40', v),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }

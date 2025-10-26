@@ -73,7 +73,7 @@ class _MainHomeScreenState extends State<MainHomeScreen>
 
               // 🔹 Sağ kısım: TabBar
               SizedBox(
-                width: 400, // genişlik kontrolü
+                width: 360, // genişlik kontrolü
                 child: TabBar(
                   controller: _tabController,
                   labelColor: Colors.white,
@@ -109,8 +109,6 @@ class _MainHomeScreenState extends State<MainHomeScreen>
                   children: [
                     const PressureMonitorWidget(),
                     const SizedBox(height: 12),
-                    _buildPumpControls(app),
-                    const SizedBox(height: 12),
                     _buildValfSection(app),
                   ],
                 ),
@@ -144,78 +142,13 @@ class _MainHomeScreenState extends State<MainHomeScreen>
     );
   }
 
-  Widget _buildPumpControls(AppState app) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildControlButton(
-              'Pompa Aç',
-              Icons.play_arrow,
-              Colors.greenAccent,
-                  () => app.sendCommand('A'),
-            ),
-            _buildControlButton(
-              'Pompa Kapat',
-              Icons.stop,
-              Colors.redAccent,
-                  () => app.sendCommand('K'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              app.pumpOn ? Icons.water_drop : Icons.water_drop_outlined,
-              color: app.pumpOn ? Colors.lightBlueAccent : Colors.white38,
-              size: 24,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              app.pumpOn ? 'Pompa Açık' : 'Pompa Kapalı',
-              style: TextStyle(
-                color: app.pumpOn ? Colors.green : Colors.red,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildValfSection(AppState app) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: const [
         ValveStatusPanel(),
-        SizedBox(height: 8),
-        PressureValveControls(),
       ],
-    );
-  }
-
-  Widget _buildControlButton(
-      String text,
-      IconData icon,
-      Color color,
-      VoidCallback onPressed,
-      ) {
-    return ElevatedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, color: Colors.white),
-      label: Text(text, style: const TextStyle(color: Colors.white)),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color.withOpacity(0.8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      ),
     );
   }
 }

@@ -1,49 +1,93 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/test_verisi.dart';
 import 'package:share_plus/share_plus.dart';
-import '../utils/mekatronik_puanlama.dart';
+import '../utils/mekatronik_puanlama.dart'; // puan hesaplama fonksiyonu varsa
 
 class RaporDetayEkrani extends StatelessWidget {
   final TestVerisi test;
 
   const RaporDetayEkrani({super.key, required this.test});
 
+  // 📄 PDF oluşturucu
   Future<Uint8List> _generatePdf() async {
     final pdf = pw.Document();
+    final dateFormatted = DateFormat('dd.MM.yyyy HH:mm').format(test.tarih);
 
     pdf.addPage(
-      pw.MultiPage(
-        build: (pw.Context context) => [
-          pw.Header(
-              level: 0,
-              child: pw.Text(test.testAdi, style: pw.TextStyle(fontSize: 26))),
-          pw.Text('Tarih: ${test.tarih.toLocal()}'),
-          pw.SizedBox(height: 12),
-          pw.Text('FAZ 0: Pompa Yükselme → ${test.faz0Sure.toStringAsFixed(1)}s'),
-          pw.Text('FAZ 1: Isınma → ${test.faz1Pompa.toStringAsFixed(0)}s'),
-          pw.Text('FAZ 2: Basınç Valfi → ${test.faz2Pompa.toStringAsFixed(0)}s'),
-          ...test.faz3Vitesler.entries.map((e) => pw.Text(
-              '${e.key}: ${e.value.toStringAsFixed(1)} bar düşüş → ${MekatronikPuanlama.vitesBasincPuani(e.value)}/5')),
-          pw.Text('FAZ 3 Toplam Puan: ${MekatronikPuanlama.faz3ToplamPuan(test.faz3Vitesler)}/35'),
-          pw.Text('FAZ 4: Test Modu → ${test.faz4Pompa.toStringAsFixed(0)}s'),
-          pw.Text(
-              'Toplam Puan: ${MekatronikPuanlama.toplamPuan(
-                faz0Sure: test.faz0Sure,
-                faz1Pompa: test.faz1Pompa,
-                faz2Pompa: test.faz2Pompa,
-                faz3Vitesler: test.faz3Vitesler,
-                faz4Pompa: test.faz4Pompa,
-              )}/100'),
-        ],
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (context) {
+          return pw.Container(
+            padding: const pw.EdgeInsets.all(24),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Center(
+                  child: pw.Text(
+                    "DQ200 TEST RAPORU",
+                    style: pw.TextStyle(
+                      fontSize: 24,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.blue900,
+                    ),
+                  ),
+                ),
+                pw.SizedBox(height: 10),
+                pw.Divider(),
+                pw.Text("Test Adı: ${test.testAdi}", style: pw.TextStyle(fontSize: 16)),
+                pw.Text("Tarih: $dateFormatted", style: pw.TextStyle(fontSize: 14)),
+                pw.SizedBox(height: 20),
+
+                pw.Text(
+                  "Ölçüm Sonuçları",
+                  style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+                ),
+                pw.SizedBox(height: 10),
+
+                pw.Table(
+                  border: pw.TableBorder.all(color: PdfColors.grey400),
+                  children: [
+                    _buildPdfRow("Minimum Basınç", "${test.minBasinc.toStringAsFixed(2)} bar"),
+                    _buildPdfRow("Maksimum Basınç", "${test.maxBasinc.toStringAsFixed(2)} bar"),
+                    _buildPdfRow("Pompa Çalışma Süresi (Genel)", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
+                    _buildPdfRow("Vites Değişim Sayısı", "${test.vitesSayisi}"),
+                    _buildPdfRow("Puan", "${test.puan}/100"), // 100'e güncellendi
+                    _buildPdfRow("Sonuç", test.sonuc),
+                    _buildPdfRow("Mock Modu", test.mockModu ? "Açık" : "Kapalı"),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
 
     return pdf.save();
   }
 
+  // PDF tablo satırı
+  pw.TableRow _buildPdfRow(String label, String value) {
+    return pw.TableRow(
+      children: [
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(8),
+          child: pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+        ),
+        pw.Padding(
+          padding: const pw.EdgeInsets.all(8),
+          child: pw.Text(value),
+        ),
+      ],
+    );
+  }
+
+  // 📤 Paylaş
   Future<void> sharePdf(BuildContext context) async {
     final pdfData = await _generatePdf();
     await Printing.sharePdf(bytes: pdfData, filename: '${test.testAdi}.pdf');
@@ -51,6 +95,8 @@ class RaporDetayEkrani extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dateFormatted = DateFormat('dd.MM.yyyy HH:mm').format(test.tarih);
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -58,10 +104,7 @@ class RaporDetayEkrani extends StatelessWidget {
         elevation: 0,
         title: Text(
           test.testAdi,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         actions: [
@@ -83,7 +126,7 @@ class RaporDetayEkrani extends StatelessWidget {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF001F3F), Color(0xFF003366), Color(0xFF004C99)],
+            colors: [Color(0xFF003366), Color(0xFF004C99), Color(0xFF001F3F)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -93,44 +136,51 @@ class RaporDetayEkrani extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: ListView(
               children: [
-                _fazSatiri("FAZ 0: Pompa Yükselme", "${test.faz0Sure.toStringAsFixed(1)}s",
-                    MekatronikPuanlama.faz0Puan(test.faz0Sure), 10),
-                _fazSatiri("FAZ 1: Isınma", "${test.faz1Pompa.toStringAsFixed(0)}s",
-                    MekatronikPuanlama.faz1Puan(test.faz1Pompa), 15),
-                _fazSatiri("FAZ 2: Basınç Valfi", "${test.faz2Pompa.toStringAsFixed(0)}s",
-                    MekatronikPuanlama.faz2Puan(test.faz2Pompa), 20),
-                Card(
-                  color: Colors.white.withOpacity(0.1),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 4,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("FAZ 3: Vites Testleri",
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        ...test.faz3Vitesler.entries.map((e) => Text(
-                            "${e.key}: ${e.value.toStringAsFixed(1)} bar düşüş → ${MekatronikPuanlama.vitesBasincPuani(e.value)}/5",
-                            style: const TextStyle(color: Colors.white))),
-                        const Divider(color: Colors.white30),
-                        Text(
-                          "TOPLAM: ${MekatronikPuanlama.faz3ToplamPuan(test.faz3Vitesler)}/35",
-                          style: const TextStyle(
-                              color: Colors.lightGreenAccent,
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ],
+                Center(
+                  child: Text(
+                    "DQ200 Test Raporu",
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.lightBlueAccent,
                     ),
                   ),
                 ),
-                _fazSatiri("FAZ 4: Test Modu", "${test.faz4Pompa.toStringAsFixed(0)}s",
-                    MekatronikPuanlama.faz4Puan(test.faz4Pompa), 20),
+                const SizedBox(height: 20),
+                _buildInfoRow("Test Adı", test.testAdi),
+                _buildInfoRow("Tarih", dateFormatted),
+                _buildInfoRow("Faz", test.fazAdi),
+                _buildInfoRow("Min Basınç", "${test.minBasinc.toStringAsFixed(2)} bar"),
+                _buildInfoRow("Max Basınç", "${test.maxBasinc.toStringAsFixed(2)} bar"),
+                _buildInfoRow("Pompa Süresi", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
+                _buildInfoRow("Vites Değişimleri", "${test.vitesSayisi}"),
+                _buildInfoRow("Puan", "${test.puan}/100"),
+                _buildInfoRow("Sonuç", test.sonuc),
+                _buildInfoRow("Mock Modu", test.mockModu ? "Açık" : "Kapalı"),
+
+                const SizedBox(height: 40),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final pdfData = await _generatePdf();
+                    await Printing.layoutPdf(onLayout: (format) async => pdfData);
+                  },
+                  icon: const Icon(Icons.picture_as_pdf),
+                  label: const Text("PDF Görüntüle / İndir", style: const TextStyle(color: Colors.white, fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ElevatedButton.icon(
+                  onPressed: () => sharePdf(context),
+                  icon: const Icon(Icons.share),
+                  label: const Text("PDF Paylaş", style: const TextStyle(color: Colors.white, fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
               ],
             ),
           ),
@@ -139,20 +189,17 @@ class RaporDetayEkrani extends StatelessWidget {
     );
   }
 
-  Widget _fazSatiri(String ad, String deger, int puan, int max) {
-    return Card(
-      color: Colors.white.withOpacity(0.1),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      elevation: 4,
-      child: ListTile(
-        title: Text(ad, style: const TextStyle(color: Colors.white)),
-        subtitle: Text(deger, style: const TextStyle(color: Colors.white70)),
-        trailing: Text(
-          "$puan/$max",
-          style: const TextStyle(color: Colors.greenAccent),
-        ),
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 16)),
+          Text(value,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
       ),
     );
   }
