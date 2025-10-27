@@ -10,7 +10,6 @@ class TestVerisi {
   final int vitesSayisi;
   final int puan; // 0–20 arası
   final String sonuc; // Mükemmel / Orta / Zayıf
-  final bool mockModu;
   double faz0Sure;
   Map<String, double> faz2Sonuclar;
   Map<String, double> faz3Sonuclar;
@@ -26,7 +25,6 @@ class TestVerisi {
     required this.vitesSayisi,
     required this.puan,
     required this.sonuc,
-    required this.mockModu,
     required this.faz0Sure,
     required this.faz2Sonuclar,
     required this.faz3Sonuclar,
@@ -43,7 +41,6 @@ class TestVerisi {
     'vitesSayisi': vitesSayisi,
     'puan': puan,
     'sonuc': sonuc,
-    'mockModu': mockModu,
     'faz0Sure': faz0Sure,
     'faz2Sonuclar': faz2Sonuclar,
     'faz3Sonuclar': faz3Sonuclar,
@@ -61,7 +58,6 @@ class TestVerisi {
       vitesSayisi: json['vitesSayisi'] ?? 0,
       puan: json['puan'] ?? 0,
       sonuc: json['sonuc'] ?? "Bilinmiyor",
-      mockModu: json['mockModu'] ?? false,
       faz0Sure: json['faz0Sure'] ?? 0.0,
       faz2Sonuclar: Map<String, double>.from(json['faz2Sonuclar'] ?? {}),
       faz3Sonuclar: Map<String, double>.from(json['faz3Sonuclar'] ?? {}),

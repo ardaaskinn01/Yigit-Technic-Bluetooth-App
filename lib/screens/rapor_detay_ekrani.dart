@@ -58,7 +58,6 @@ class RaporDetayEkrani extends StatelessWidget {
                     _buildPdfRow("Vites Değişim Sayısı", "${test.vitesSayisi}"),
                     _buildPdfRow("Puan", "${test.puan}/100"), // 100'e güncellendi
                     _buildPdfRow("Sonuç", test.sonuc),
-                    _buildPdfRow("Mock Modu", test.mockModu ? "Açık" : "Kapalı"),
                   ],
                 ),
               ],
@@ -156,7 +155,6 @@ class RaporDetayEkrani extends StatelessWidget {
                 _buildInfoRow("Vites Değişimleri", "${test.vitesSayisi}"),
                 _buildInfoRow("Puan", "${test.puan}/100"),
                 _buildInfoRow("Sonuç", test.sonuc),
-                _buildInfoRow("Mock Modu", test.mockModu ? "Açık" : "Kapalı"),
 
                 const SizedBox(height: 40),
                 ElevatedButton.icon(

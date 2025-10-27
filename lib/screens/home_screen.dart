@@ -19,6 +19,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool showLog = false;
+  double _temizlemeDegeri = 0.1; // Varsayılan değer: 0.1 saniye
+  final List<double> _temizlemeSecenekleri = [0.1, 0.5, 1.0];
+  bool _temizlemeAktif = false;
 
   @override
   void initState() {
@@ -32,7 +35,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final app = Provider.of<AppState>(context);
 
-    // Scaffold ve SafeArea kaldırıldı, scroll MainHomeScreen'den yönetilecek
     return SingleChildScrollView(
       padding: const EdgeInsets.all(8),
       child: Column(
@@ -40,11 +42,11 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           if (app.isConnected) ...[
             SizedBox(child: _buildGearSelection(app)),
-            _buildK1K2Buttons(app), // 🔹 Yeni buton satırı
             const SizedBox(height: 8),
             K1K2SystemControl(
               value: app.isK1K2Mode,
               onChanged: (val) => app.setK1K2Mode(val),
+              app: app, // AppState'i parametre olarak veriyoruz
             ),
             const SizedBox(height: 12),
             _buildPumpControls(app),
@@ -67,6 +69,242 @@ class _HomeScreenState extends State<HomeScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
+
+                  // 🔹 Valf Temizleme Bölümü - YENİ EKLENDİ
+                  // State değişkeni ekleyin (class _HomeScreenState içinde)
+
+                  // Valf Temizleme Bölümü - GÜNCELLENDİ
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white10,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color:
+                            _temizlemeAktif
+                                ? Colors.redAccent.withOpacity(0.5)
+                                : Colors.greenAccent.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _temizlemeAktif
+                                  ? Icons.cleaning_services
+                                  : Icons.cleaning_services_outlined,
+                              color:
+                                  _temizlemeAktif
+                                      ? Colors.redAccent
+                                      : Colors.greenAccent,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              "VALF TEMİZLEME",
+                              style: TextStyle(
+                                color:
+                                    _temizlemeAktif
+                                        ? Colors.redAccent
+                                        : Colors.greenAccent,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Süre Seçimi (sadece temizleme aktif değilken göster)
+                        if (!_temizlemeAktif) ...[
+                          const Text(
+                            "Temizleme Süresi:",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+
+                          // Kaydırma Çubuğu - Sadece 0.1, 0.5, 1.0 değerleri
+                          Slider(
+                            value: _temizlemeDegeri,
+                            min: 0.1,
+                            max: 1.0,
+                            divisions: 2, // Sadece 3 pozisyon: 0.1, 0.5, 1.0
+                            label: "${_temizlemeDegeri.toStringAsFixed(1)}s",
+                            activeColor: Colors.greenAccent,
+                            inactiveColor: Colors.greenAccent.withOpacity(0.3),
+                            onChanged: (value) {
+                              setState(() {
+                                // Slider'ı en yakın değere yuvarla (0.1, 0.5 veya 1.0)
+                                if (value < 0.3) {
+                                  _temizlemeDegeri = 0.1;
+                                } else if (value < 0.75) {
+                                  _temizlemeDegeri = 0.5;
+                                } else {
+                                  _temizlemeDegeri = 1.0;
+                                }
+                              });
+                            },
+                          ),
+
+                          // Değer göstergesi
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                "0.1s",
+                                style: TextStyle(
+                                  color:
+                                      _temizlemeDegeri == 0.1
+                                          ? Colors.greenAccent
+                                          : Colors.white54,
+                                  fontSize: 10,
+                                  fontWeight:
+                                      _temizlemeDegeri == 0.1
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                ),
+                              ),
+                              Text(
+                                "0.5s",
+                                style: TextStyle(
+                                  color:
+                                      _temizlemeDegeri == 0.5
+                                          ? Colors.greenAccent
+                                          : Colors.white54,
+                                  fontSize: 10,
+                                  fontWeight:
+                                      _temizlemeDegeri == 0.5
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                ),
+                              ),
+                              Text(
+                                "1.0s",
+                                style: TextStyle(
+                                  color:
+                                      _temizlemeDegeri == 1.0
+                                          ? Colors.greenAccent
+                                          : Colors.white54,
+                                  fontSize: 10,
+                                  fontWeight:
+                                      _temizlemeDegeri == 1.0
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ] else ...[
+                          // Temizleme aktifken durum bilgisi
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.redAccent),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.timer,
+                                  color: Colors.redAccent,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "Aktif: ${_temizlemeDegeri.toStringAsFixed(1)}s",
+                                  style: TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+
+                        // Başlat/Durdur Butonu
+                        // Başlat/Durdur Butonu - MERKEZDE
+                        Center(
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              if (!_temizlemeAktif) {
+                                // BAŞLAT
+                                final msDegeri = (_temizlemeDegeri * 1000).round();
+                                app.sendCommand("TEMIZAC $msDegeri");
+
+                                setState(() {
+                                  _temizlemeAktif = true;
+                                });
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      "Valf temizleme başlatıldı: ${_temizlemeDegeri.toStringAsFixed(1)}s",
+                                    ),
+                                    backgroundColor: Colors.green,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              } else {
+                                // DURDUR
+                                app.sendCommand("TEMIZKAPAT");
+
+                                setState(() {
+                                  _temizlemeAktif = false;
+                                });
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("Valf temizleme durduruldu"),
+                                    backgroundColor: Colors.red,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: Icon(
+                              _temizlemeAktif ? Icons.stop : Icons.cleaning_services,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            label: Text(
+                              _temizlemeAktif ? "DURDUR" : "BAŞLAT",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _temizlemeAktif
+                                  ? Colors.redAccent.withOpacity(0.8)
+                                  : Colors.greenAccent.withOpacity(0.8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -82,29 +320,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orangeAccent.withOpacity(0.8),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-
-                      // 🔹 Valf Temizleme
-                      ElevatedButton.icon(
-                        onPressed: () => app.startTemizlemeModu(),
-                        icon: const Icon(
-                          Icons.cleaning_services,
-                          color: Colors.white,
-                        ),
-                        label: const Text(
-                          "VALF TEMİZLE",
-                          style: TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.greenAccent.withOpacity(0.8),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 18,
                             vertical: 14,
@@ -185,6 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Diğer metodlar aynı kalacak...
   Widget _buildConnectButton(AppState app) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -466,7 +682,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildK1K2Buttons(AppState app) {
-    final isDisabled = !app.isK1K2Mode; // false ise butonlar pasif olacak
+    final isDisabled = !app.isK1K2Mode;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -481,10 +697,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final isActive = app.valveStates[valve] ?? false;
 
     return ElevatedButton(
-      onPressed:
-          isDisabled
-              ? null // Pasifse buton tıklanamaz
-              : () => app.toggleValve(valve),
+      onPressed: isDisabled ? null : () => app.toggleValve(valve),
       style: ElevatedButton.styleFrom(
         backgroundColor:
             isActive
@@ -527,8 +740,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Test modu açıklaması
-          if (app.isTestModeActive)
+          // ✅ AKTİF MOD BİLGİSİ
+          if (app.isTestModeActive && app.currentTestMode != 8)
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -548,18 +761,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   Text(
                     app.testModeDescriptions[app.currentTestMode] ?? "",
-                    style: const TextStyle(
-                      color: Colors.amber,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: Colors.amber, fontSize: 12),
                     textAlign: TextAlign.center,
                   ),
                   Text(
                     "Vites: ${app.gear} | Pompa: ${app.pumpOn ? 'AÇIK' : 'KAPALI'}",
-                    style: const TextStyle(
-                      color: Colors.amber,
-                      fontSize: 11,
-                    ),
+                    style: const TextStyle(color: Colors.amber, fontSize: 11),
                   ),
                 ],
               ),
@@ -567,40 +774,75 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 8),
 
-          // Test modu butonları - 2 SIRALI GRID
+          // ✅ TÜM MOD BUTONLARI HER ZAMAN GÖSTERİLSİN
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4, // 4 buton ilk sırada
+              crossAxisCount: 4,
               crossAxisSpacing: 4,
               mainAxisSpacing: 4,
-              childAspectRatio: 1.2, // Daha küçük butonlar
+              childAspectRatio: 1.2,
             ),
-            itemCount: 7,
+            itemCount: 8,
             itemBuilder: (context, index) {
               int mode = index + 1;
               bool isActive = app.currentTestMode == mode;
-
-              // Test 7 için özel stil (SÖKME modu)
+              bool isTestRunning = app.isTestModeActive && app.currentTestMode != 8;
               bool isTest7 = mode == 7;
-              Color activeColor = isTest7 ? Colors.redAccent : Colors.amber;
-              Color inactiveColor = isTest7 ? Colors.red.withOpacity(0.3) : Colors.blueGrey.withOpacity(0.7);
+              bool isTest8 = mode == 8;
+
+              // ✅ BUTON DAVRANIŞI:
+              // - Test çalışmıyorsa: Tüm butonlar tıklanabilir
+              // - Test çalışıyorsa (1-7): Sadece T8 tıklanabilir, diğerleri devre dışı
+              // - T8 her zaman tıklanabilir (durdurma butonu)
+              bool isButtonEnabled = !isTestRunning || isTest8 || isActive;
+
+              Color activeColor = isTest7
+                  ? Colors.blueAccent
+                  : isTest8
+                  ? Colors.redAccent
+                  : Colors.amber;
+              Color inactiveColor = isTest7
+                  ? Colors.blue
+                  : isTest8
+                  ? Colors.red
+                  : Colors.blueGrey.withOpacity(0.7);
+
+              // Buton rengini belirle
+              Color buttonColor;
+              if (!isButtonEnabled) {
+                buttonColor = Colors.grey.withOpacity(0.3); // Devre dışı rengi
+              } else if (isActive) {
+                buttonColor = activeColor.withOpacity(0.9);
+              } else {
+                buttonColor = inactiveColor;
+              }
 
               return Tooltip(
-                message: app.testModeDescriptions[mode] ?? "",
+                message: !isButtonEnabled
+                    ? "Test devam ediyor - Durdurmak için T8'e basın"
+                    : app.testModeDescriptions[mode] ?? "",
                 child: ElevatedButton(
-                  onPressed: () {
+                  onPressed: isButtonEnabled
+                      ? () {
                     if (isActive) {
-                      app.stopTestMode();
+                      // Aktif modu durdur (sadece T8 için)
+                      if (isTest8) {
+                        app.stopTestMode();
+                      }
                     } else {
-                      app.startTestMode(mode);
+                      // Yeni mod başlat veya T8 ile durdur
+                      if (isTest8 && app.isTestModeActive) {
+                        app.stopTestMode();
+                      } else {
+                        app.startTestMode(mode);
+                      }
                     }
-                  },
+                  }
+                      : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isActive
-                        ? activeColor.withOpacity(0.9)
-                        : inactiveColor,
+                    backgroundColor: buttonColor,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(6),
                       side: BorderSide(
@@ -608,7 +850,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: 1.5,
                       ),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 6,
+                    ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -617,24 +862,32 @@ class _HomeScreenState extends State<HomeScreen> {
                       Text(
                         "T$mode",
                         style: TextStyle(
-                          color: Colors.white,
+                          color: isButtonEnabled ? Colors.white : Colors.grey,
                           fontWeight: FontWeight.bold,
                           fontSize: 12,
                         ),
                       ),
                       Text(
-                        "${app.testModeDelays[mode]}ms",
+                        isTest8 ? "ACİL" : "${app.testModeDelays[mode]}ms",
                         style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 9,
+                          color: isButtonEnabled ? Colors.white70 : Colors.grey,
+                          fontSize: isTest8 ? 8 : 9,
                         ),
                       ),
-                      // Test 7 için özel etiket
                       if (isTest7)
-                        const Text(
+                        Text(
                           "SÖKME",
                           style: TextStyle(
-                            color: Colors.white,
+                            color: isButtonEnabled ? Colors.white : Colors.grey,
+                            fontSize: 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      if (isTest8)
+                        Text(
+                          "DURDUR",
+                          style: TextStyle(
+                            color: isButtonEnabled ? Colors.white : Colors.grey,
                             fontSize: 7,
                             fontWeight: FontWeight.bold,
                           ),
@@ -646,25 +899,23 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
 
-          const SizedBox(height: 8),
-
-          // Test modu durdurma butonu
-          if (app.isTestModeActive)
-            ElevatedButton.icon(
-              onPressed: () => app.stopTestMode(),
-              icon: const Icon(Icons.stop, color: Colors.white, size: 16),
-              label: Text(
-                "MOD ${app.currentTestMode} DURDUR",
-                style: const TextStyle(color: Colors.white, fontSize: 11),
+          // ✅ TEST ÇALIŞIRKEN BİLGİ MESAJI
+          if (app.isTestModeActive && app.currentTestMode != 8)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: app.currentTestMode == 7
-                    ? Colors.redAccent.withOpacity(0.9)
-                    : Colors.redAccent.withOpacity(0.8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+              child: Text(
+                "Test Mod ${app.currentTestMode} çalışıyor - Durdurmak için T8 (ACİL DURDUR) butonunu kullanın",
+                style: TextStyle(
+                  color: Colors.blue,
+                  fontSize: 12,
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                textAlign: TextAlign.center,
               ),
             ),
         ],

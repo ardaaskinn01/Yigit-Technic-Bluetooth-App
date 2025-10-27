@@ -12,8 +12,6 @@ class TestScreen extends StatefulWidget {
   State<TestScreen> createState() => _TestScreenState();
 }
 
-// test_screen.dart güncellemesi
-
 class _TestScreenState extends State<TestScreen> {
   final TextEditingController _nameController = TextEditingController();
   late AppState _app;
@@ -50,44 +48,54 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
+  // TestScreen.dart'da _onTestFinished metodunu güncelleyin
   void _onTestFinished() {
-    // Sadece test bittiğinde (true olduğunda) ve hala ekran açıksa ÇALIŞ ve
-    // diyalog zaten AÇIK DEĞİLSE devam et.
-    if (_app.testFinished && _app.completedTests.isNotEmpty && !_isDialogShowing) {
+    // Debug için log ekleyin
+    print('[DEBUG] _onTestFinished called:');
+    print('  - testFinished: ${_app.testFinished}');
+    print('  - completedTests: ${_app.completedTests.length}');
+    print('  - currentPhase: ${_app.currentPhase}');
+    print('  - _isDialogShowing: $_isDialogShowing');
 
-      // 1. Bayrağı AÇ: Diyaloğun açılmak üzere olduğunu işaretle
+    // Koşulları genişletin
+    if (_app.testFinished &&
+        _app.completedTests.isNotEmpty &&
+        !_isDialogShowing &&
+        _app.currentPhase == TestPhase.completed) {
+
       _isDialogShowing = true;
-
       final lastTest = _app.completedTests.last;
+
+      // Debug
+      print('[DEBUG] Showing completion dialog for: ${lastTest.testAdi}');
 
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (BuildContext dialogContext) {
           return AlertDialog(
-            title: const Text("Test Tamamlandı!", // Güncellendi
-                style: const TextStyle(color: Colors.white, fontSize: 16)),
+            title: const Text("Test Tamamlandı!",
+                style: TextStyle(color: Colors.white, fontSize: 16)),
             content: Text(
               "Test Adı: ${lastTest.testAdi}\n"
                   "Sonuç: ${lastTest.sonuc} (${lastTest.puan} / 100)\n"
+                  "Durum: ${lastTest.fazAdi}\n"
                   "\nRaporu görüntülemek ister misiniz?",
               style: TextStyle(color: MekatronikPuanlama.renk(lastTest.puan)),
             ),
             actions: <Widget>[
               TextButton(
-                child: const Text("KAPAT", // Güncellendi
-                    style: const TextStyle(color: Colors.white, fontSize: 16)),
+                child: const Text("KAPAT",
+                    style: TextStyle(color: Colors.white, fontSize: 16)),
                 onPressed: () {
                   Navigator.of(dialogContext).pop();
                 },
               ),
               TextButton(
-                child: const Text("RAPORU GÖRÜNTÜLE", // Güncellendi
-                    style: const TextStyle(color: Colors.white, fontSize: 16)),
+                child: const Text("RAPORU GÖRÜNTÜLE",
+                    style: TextStyle(color: Colors.white, fontSize: 16)),
                 onPressed: () {
-                  // Dialogu kapat
                   Navigator.of(dialogContext).pop();
-                  // Rapor ekranına git
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -100,15 +108,9 @@ class _TestScreenState extends State<TestScreen> {
           );
         },
       ).then((_) {
-        // 2. Diyalog kapandıktan sonra (her iki düğme veya geri dönüş ile) bu blok çalışır.
-        // Durumu sıfırla (Böylece geri gelindiğinde tekrar tetiklenmez)
         _app.testFinished = false;
-        // 3. Bayrağı KAPAT
         _isDialogShowing = false;
-
-        // Eğer app state'in notifyListeners() metodu bir sonraki aşamada çağrılmazsa,
-        // _app.testFinished = false; değişikliğinin arayüze yansıması için manuel bir bildirim
-        // gerekebilir. Ancak bu bayrak kontrolü sorunu %99 çözecektir.
+        print('[DEBUG] Dialog closed, flags reset');
       });
     }
   }
@@ -132,7 +134,6 @@ class _TestScreenState extends State<TestScreen> {
             ? "${app.currentPhase.toString().split('.').last.toUpperCase()}: ${app.phaseStatusMessage}"
             : app.testStatus;
 
-
         return Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -155,7 +156,7 @@ class _TestScreenState extends State<TestScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Butonlar
+              // Ana Kontrol Butonları
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -172,21 +173,28 @@ class _TestScreenState extends State<TestScreen> {
                         );
                         return;
                       }
-                      // startTest yerine startFullTest kullanıldı
+
+                      // Test adını AppState'e kaydet
+                      _app.setCurrentTestName(name);
+
                       await app.startFullTest(name);
                     },
-                    label: const Text("Başlat", // Güncellendi
-                      style: const TextStyle(color: Colors.white, fontSize: 16)),
+                    icon: const Icon(Icons.play_arrow, color: Colors.white),
+                    label: const Text("Başlat",
+                        style: TextStyle(color: Colors.white, fontSize: 16)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
                   ),
                   ElevatedButton.icon(
                     onPressed: isRunning ? () => app.pauseTest() : null,
-                    label: Text(isPaused ? "Devam" : "Duraklat", // Güncellendi
+                    icon: Icon(isPaused ? Icons.play_arrow : Icons.pause, color: Colors.white),
+                    label: Text(isPaused ? "Devam" : "Duraklat",
                         style: const TextStyle(color: Colors.white, fontSize: 16)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
                   ),
                   ElevatedButton.icon(
@@ -194,16 +202,95 @@ class _TestScreenState extends State<TestScreen> {
                     onPressed: isRunning
                         ? () => app.stopTest()
                         : null,
-                    label: const Text("Bitir", // Güncellendi
+                    icon: const Icon(Icons.stop, color: Colors.white),
+                    label: const Text("Bitir",
                         style: const TextStyle(color: Colors.white, fontSize: 16)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 16),
+
+              // Test Kontrol Butonları - YENİ EKLENDİ
+              if (isRunning) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // Fazı Atla Butonu
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        app.sendCommand("amk");
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Faz atlama komutu gönderildi"),
+                            backgroundColor: Colors.blue,
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.skip_next, color: Colors.white),
+                      label: const Text("Fazı Atla",
+                          style: TextStyle(color: Colors.white, fontSize: 14)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+
+                    // Testi İptal Et Butonu
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (BuildContext context) {
+                            return AlertDialog(
+                              title: const Text("Testi İptal Et",
+                                  style: TextStyle(color: Colors.white)),
+                              content: const Text("Testi iptal etmek istediğinizden emin misiniz?",
+                                  style: TextStyle(color: Colors.white70)),
+                              backgroundColor: const Color(0xFF003366),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(context).pop(),
+                                  child: const Text("Hayır",
+                                      style: TextStyle(color: Colors.white)),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    app.sendCommand("aq");
+                                    Navigator.of(context).pop();
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text("Test iptal komutu gönderildi"),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  },
+                                  child: const Text("Evet",
+                                      style: TextStyle(color: Colors.red)),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      },
+                      icon: const Icon(Icons.cancel, color: Colors.white),
+                      label: const Text("Testi İptal Et",
+                          style: TextStyle(color: Colors.white, fontSize: 14)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              const SizedBox(height: 16),
 
               // Test bilgileri
               Container(
@@ -214,7 +301,7 @@ class _TestScreenState extends State<TestScreen> {
                 ),
                 child: Column(
                   children: [
-                    // AKTİF FAZ BİLGİSİ - YENİ EKLENDİ
+                    // AKTİF FAZ BİLGİSİ
                     if (app.isTesting) ...[
                       Text(
                         "AKTİF FAZ: ${_getPhaseName(app.currentPhase)}",

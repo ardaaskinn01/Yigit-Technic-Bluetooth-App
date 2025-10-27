@@ -12,7 +12,7 @@ void main() async {
   // ✅ Önce izinleri kontrol et
   await checkBluetoothPermissions();
 
-  final appState = AppState(mockMode: false);
+  final appState = AppState(mockMode: true);
 
   runApp(
     MultiProvider(
@@ -55,7 +55,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final appState = Provider.of<AppState>(context, listen: false);
+    final appState = Provider.of<AppState>(context, listen: true);
 
     return MaterialApp(
       title: 'DQ200 Controller',

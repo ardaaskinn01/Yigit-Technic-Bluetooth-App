@@ -103,6 +103,7 @@ class AppState extends ChangeNotifier {
     5: 2.0,
     6: 5.0,
     7: 0.1,
+    8: 0.0,
   };
   final Map<int, String> testModeDescriptions = {
     1: "Çok Hızlı - Yüksek hız testi",
@@ -112,6 +113,7 @@ class AppState extends ChangeNotifier {
     5: "Normal - Genel kontrol",
     6: "Yavaş - Detaylı gözlem",
     7: "En Hızlı - SÖKME modu",
+    8: "Durdur - Acil Durdurma",
   };
 
   void setMode(int mode) {
@@ -132,18 +134,21 @@ class AppState extends ChangeNotifier {
   };
 
   void startTestMode(int mode) {
-    if (mode < 1 || mode > 7) return;
-
+    if (mode < 1 || mode > 8) return;
+    setK1K2Mode(true);
     currentTestMode = mode;
     isTestModeActive = true;
 
     // Test modu komutunu gönder
     sendCommand(mode.toString());
 
-    // Test 7 için özel mesaj
+    // Test 7 ve 8 için özel mesajlar
     if (mode == 7) {
       connectionMessage = "SÖKME MODU AKTİF - Basınç düşürülüyor";
       logs.add("🚨 SÖKME Modu başlatıldı (0.1ms) - Sistem boşaltılıyor");
+    } else if (mode == 8) {
+      connectionMessage = "ACİL DURDUR AKTİF - Sistem durduruluyor";
+      logs.add("🛑 ACİL DURDUR Modu başlatıldı - Sistem sıfırlanıyor");
     } else {
       connectionMessage = "Test Mod $mode aktif: ${testModeDescriptions[mode]}";
       logs.add("Test Mod $mode başlatıldı (${testModeDelays[mode]}ms bekleme)");
@@ -152,11 +157,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-// Test modunu durdur
   void stopTestMode() {
-    // Test 7 için özel log
+    // Test 7 ve 8 için özel loglar
     if (currentTestMode == 7) {
       logs.add("✅ SÖKME Modu durduruldu - Sistem güvenli");
+    } else if (currentTestMode == 8) {
+      logs.add("✅ ACİL DURDUR Modu tamamlandı - Sistem sıfırlandı");
     }
 
     currentTestMode = 0;
@@ -181,6 +187,7 @@ class AppState extends ChangeNotifier {
 
     notifyListeners();
   }
+
   Future<void> loadTestsFromLocal() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList('saved_tests') ?? [];
@@ -190,78 +197,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> startAutoTest(String testAdi) async {
-    if (isTesting) return;
-
-    testStatus = 'Test Başlatılıyor...';
-    isTesting = true;
-    _elapsedTestSeconds = 0;
-    _faz0Sure = 0.0;
-    _faz2Sonuclar.clear();
-    _faz3Sonuclar.clear();
-    _faz4PompaSuresi = 0.0;
-    _faz4VitesSayisi = 0;
-
-    notifyListeners();
-
-    // TEST komutunu gönder
-    sendCommand("TEST");
-
-    // Timer başlat
-    _testTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      _elapsedTestSeconds++;
-      _updateTestStatus();
-      notifyListeners();
-    });
-  }
-
-
-  void _updateTestStatus() {
-    // Test durumunu güncelle
-    if (_elapsedTestSeconds < 10) {
-      testStatus = 'FAZ 0: Pompa Testi';
-    } else if (_elapsedTestSeconds < 70) {
-      testStatus = 'FAZ 2: Basınç Valf Testleri';
-    } else if (_elapsedTestSeconds < 340) { // 70 + (6*45) = 340
-      testStatus = 'FAZ 3: Vites Testleri';
-    } else {
-      testStatus = 'FAZ 4: Dayanıklılık Testi';
-    }
-  }
-
-  void _completeTest() {
-    _testTimer?.cancel();
-    isTesting = false;
-    testStatus = 'Test Tamamlandı';
-
-    // Puan hesapla
-    final puan = _calculateTotalScore();
-    final sonuc = _getTestResult(puan);
-
-    // Test verisini oluştur
-    final test = TestVerisi(
-      testAdi: _currentTestName,
-      tarih: DateTime.now(),
-      fazAdi: "Otomatik Tam Test",
-      minBasinc: _currentMinPressure,
-      maxBasinc: _currentMaxPressure,
-      toplamPompaSuresi: _faz0Sure + _faz4PompaSuresi,
-      vitesSayisi: _faz4VitesSayisi,
-      puan: puan,
-      sonuc: sonuc,
-      mockModu: mockMode,
-      faz0Sure: _faz0Sure,
-      faz2Sonuclar: _faz2Sonuclar,
-      faz3Sonuclar: _faz3Sonuclar,
-      faz4PompaSuresi: _faz4PompaSuresi,
-    );
-
-    // Kaydet ve callback gönder
-    _saveTestAndShowResult(test);
-  }
-
   Future<void> startFullTest(String testAdi) async {
     if (isTesting) return;
+
+    // Test adını kaydet
+    _currentTestName = testAdi;
+
+    // Önceki timer'ları temizle
+    _resetAllTimers();
 
     // Durumları sıfırla
     isTesting = true;
@@ -368,7 +311,6 @@ class AppState extends ChangeNotifier {
         vitesSayisi: gearChanges,
         puan: puan,
         sonuc: sonuc,
-        mockModu: mockMode,
         faz0Sure: faz0Sure,
         faz2Sonuclar: faz2Sonuclar,
         faz3Sonuclar: faz3Sonuclar,
@@ -397,6 +339,10 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
     }
+  }
+
+  void setCurrentTestName(String name) {
+    _currentTestName = name;
   }
 
   // Faz 0 Simülasyonu
@@ -582,61 +528,14 @@ class AppState extends ChangeNotifier {
     };
   }
 
-  int _calculateTotalScore() {
-    int toplam = 0;
-
-    // FAZ 0 Puanı (10 puan)
-    if (_faz0Sure <= 8) toplam += 10;
-    else if (_faz0Sure <= 12) toplam += 7;
-    else toplam += 3;
-
-    // FAZ 2 Puanı (20 puan)
-    double faz2Ortalama = _faz2Sonuclar.values.fold(0.0, (a, b) => a + b) / _faz2Sonuclar.length;
-    if (faz2Ortalama < 2) toplam += 20;
-    else if (faz2Ortalama <= 5) toplam += 15;
-    else toplam += 5;
-
-    // FAZ 3 Puanı (35 puan)
-    double faz3Ortalama = _faz3Sonuclar.values.fold(0.0, (a, b) => a + b) / _faz3Sonuclar.length;
-    if (faz3Ortalama < 3) toplam += 35;
-    else if (faz3Ortalama <= 6) toplam += 25;
-    else toplam += 10;
-
-    // FAZ 4 Puanı (20 puan)
-    if (_faz4PompaSuresi < 55) toplam += 20;
-    else if (_faz4PompaSuresi <= 80) toplam += 15;
-    else toplam += 5;
-
-    // Bonus puan (15 puan)
-    if (toplam >= 80) toplam += 15;
-    else if (toplam >= 60) toplam += 8;
-
-    return toplam.clamp(0, 100);
-  }
-
-  String _getTestResult(int puan) {
-    if (puan >= 85) return "MÜKEMMEL";
-    if (puan >= 70) return "İYİ";
-    if (puan >= 50) return "ORTA";
-    return "ZAYIF";
-  }
-
 // Test sonucu callback'i
   Function(TestVerisi)? onTestCompleted;
-
-  void _saveTestAndShowResult(TestVerisi test) async {
-    await saveTest(test);
-    if (onTestCompleted != null) {
-      onTestCompleted!(test);
-    }
-  }
 
 // Test durdurma
   void stopAutoTest() {
     _testTimer?.cancel();
     isTesting = false;
     testStatus = 'Test Durduruldu';
-    sendCommand("TEST_DURDUR");
     notifyListeners();
   }
 
@@ -657,11 +556,80 @@ class AppState extends ChangeNotifier {
 
   void stopTest() {
     if (!isTesting) return;
+
+    // Timer'ları durdur
+    _resetAllTimers();
+
+    // Test verilerini topla ve kaydet
+    _savePartialTest();
+
     isTesting = false;
-    testStatus = 'Tamamlandı';
+    testStatus = 'Kullanıcı Tarafından Durduruldu';
     testFinished = true;
     currentPhase = TestPhase.completed;
+
     notifyListeners();
+  }
+
+  Future<void> _savePartialTest() async {
+    final startTime = DateTime.now().subtract(Duration(seconds: _elapsedTestSeconds));
+
+    // Kısmi test verilerini topla
+    final test = TestVerisi(
+      testAdi: _currentTestName.isNotEmpty ? _currentTestName : "Kısmi Test",
+      tarih: startTime,
+      fazAdi: "Kullanıcı Durdurma - Kısmi Test",
+      minBasinc: _currentMinPressure,
+      maxBasinc: _currentMaxPressure,
+      toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
+      vitesSayisi: _faz4VitesSayisi,
+      puan: _calculatePartialScore(), // Kısmi puan hesapla
+      sonuc: "KISMİ TEST",
+      faz0Sure: faz0Sure,
+      faz2Sonuclar: faz2Sonuclar,
+      faz3Sonuclar: faz3Sonuclar,
+      faz4PompaSuresi: faz4PompaSuresi,
+    );
+
+    await saveTest(test);
+
+    // Callback tetikle
+    if (onTestCompleted != null) {
+      onTestCompleted!(test);
+    }
+  }
+
+  int _calculatePartialScore() {
+    // Mevcut fazlara göre kısmi puan hesapla
+    int puan = 0;
+
+    if (currentPhase.index >= TestPhase.phase0.index && faz0Sure > 0) {
+      if (faz0Sure <= 8) puan += 10;
+      else if (faz0Sure <= 12) puan += 7;
+      else puan += 3;
+    }
+
+    if (currentPhase.index >= TestPhase.phase2.index && faz2Sonuclar.isNotEmpty) {
+      double faz2Ort = faz2Sonuclar.values.fold(0.0, (a, b) => a + b) / faz2Sonuclar.length;
+      if (faz2Ort < 2) puan += 20;
+      else if (faz2Ort <= 5) puan += 15;
+      else puan += 5;
+    }
+
+    if (currentPhase.index >= TestPhase.phase3.index && faz3Sonuclar.isNotEmpty) {
+      double faz3Ort = faz3Sonuclar.values.fold(0.0, (a, b) => a + b) / faz3Sonuclar.length;
+      if (faz3Ort < 3) puan += 35;
+      else if (faz3Ort <= 6) puan += 25;
+      else puan += 10;
+    }
+
+    if (currentPhase.index >= TestPhase.phase4.index && faz4PompaSuresi > 0) {
+      if (faz4PompaSuresi < 55) puan += 20;
+      else if (faz4PompaSuresi <= 80) puan += 15;
+      else puan += 5;
+    }
+
+    return puan.clamp(0, 100);
   }
 
   void toggleValve(String key) {
@@ -680,12 +648,6 @@ class AppState extends ChangeNotifier {
   void startSokmeModu() {
     sendCommand("SOKME");
     connectionMessage = "Sökme modu başlatıldı (basınç boşaltılıyor)";
-    notifyListeners();
-  }
-
-  void startTemizlemeModu() {
-    sendCommand("TEMIZLE");
-    connectionMessage = "Temizleme modu başlatıldı (10 döngü çalışıyor)";
     notifyListeners();
   }
 
@@ -711,6 +673,15 @@ class AppState extends ChangeNotifier {
   int _operationSeconds = 0;
 
   final bool mockMode; // <- yeni
+
+  void _resetAllTimers() {
+    _testTimer?.cancel();
+    _phaseTimer?.cancel();
+    _testModeTimer?.cancel();
+    _testTimer = null;
+    _phaseTimer = null;
+    _testModeTimer = null;
+  }
 
   void updateValvesFromMessage(String msg) {
     if (!msg.startsWith('VALVES:')) return;
@@ -822,7 +793,7 @@ class AppState extends ChangeNotifier {
       pressure = minPressure + random.nextDouble() * (maxPressure - minPressure);
 
       // 2️⃣ Vites durumuna göre valfleri ayarla
-      _updateValvesByGear(gear);
+      updateValvesByGear(gear);
 
       // 3️⃣ Basınç Valfi manuel kontrol bilgisi
       lastMessage =
@@ -854,7 +825,7 @@ class AppState extends ChangeNotifier {
         return;
       }
 
-      // Otomatik vites döngüsü
+      // Otomatik vites döngüsü - TÜM valfler güncellenecek
       _cycleGearsAutomatically();
 
       // Pompayı otomatik aç (test modlarında pompa genellikle açık olur)
@@ -873,13 +844,13 @@ class AppState extends ChangeNotifier {
 // Test moduna göre gecikme süresi (saniye cinsinden)
   double _getTestModeDelay() {
     switch (currentTestMode) {
-      case 1: return 0.5;  // Çok Hızlı - 1.0ms yerine 0.5s (simülasyon için)
-      case 2: return 0.6;  // Çok Hızlı - 1.2ms yerine 0.6s
-      case 3: return 0.2;  // Ultra Hızlı - 0.4ms yerine 0.2s
-      case 4: return 0.35; // Hızlı - 0.7ms yerine 0.35s
-      case 5: return 1.0;  // Normal - 2.0ms yerine 1.0s
-      case 6: return 2.5;  // Yavaş - 5.0ms yerine 2.5s
-      case 7: return 0.05; // En Hızlı - 0.1ms yerine 0.05s
+      case 1: return 1.0;  // Çok Hızlı - 1.0ms yerine 0.5s (simülasyon için)
+      case 2: return 1.2;  // Çok Hızlı - 1.2ms yerine 0.6s
+      case 3: return 0.4;  // Ultra Hızlı - 0.4ms yerine 0.2s
+      case 4: return 0.7; // Hızlı - 0.7ms yerine 0.35s
+      case 5: return 2.0;  // Normal - 2.0ms yerine 1.0s
+      case 6: return 5.0;  // Yavaş - 5.0ms yerine 2.5s
+      case 7: return 0.1; // En Hızlı - 0.1ms yerine 0.05s
       default: return 1.0;
     }
   }
@@ -892,10 +863,10 @@ class AppState extends ChangeNotifier {
 
     gear = gears[nextIndex];
 
-    // Vites değişince valfleri güncelle
+    // Vites değişince TÜM valfleri güncelle (manuel davranış gibi)
     updateValvesByGear(gear);
 
-    logs.add('Test Mod $currentTestMode: Vites $gear\'a geçildi');
+    logs.add('Test Mod $currentTestMode: Vites $gear\'a geçildi - Tüm valfler güncellendi');
   }
 
 // Test moduna göre basınç simülasyonu
@@ -931,47 +902,82 @@ class AppState extends ChangeNotifier {
   }
 
 // Valfleri güncelleme metodunu ayrı bir metoda taşı
-  void _updateValvesByGear(String currentGear) {
-    // Önce tüm valfleri false yap
-    for (var key in ['N433', 'N434', 'N437', 'N438']) {
-      valveStates[key] = false;
-    }
+  void updateValvesByGear(String gear) {
+    // Önce tüm vites valflerini sıfırla
+    valveStates['N433'] = false;
+    valveStates['N434'] = false;
+    valveStates['N437'] = false;
+    valveStates['N438'] = false;
 
-    // Vites -> Valf eşleştirmesi
-    switch (currentGear) {
+    // Basınç valflerini de sıfırla (vitese göre yeniden ayarlanacak)
+    valveStates['N436'] = false;
+    valveStates['N440'] = false;
+
+    // Vites -> Valf eşleştirmesi (manuel kurallar)
+    switch (gear) {
       case '1':
-      case '3':
-        valveStates['N433'] = true;
+        valveStates['N433'] = true; // Vites 1-3 valfi
+        valveStates['N436'] = true; // K1 hattı basınç valfi
         break;
       case '2':
+        valveStates['N437'] = true; // Vites 2-4 valfi
+        valveStates['N440'] = true; // K2 hattı basınç valfi
+        break;
+      case '3':
+        valveStates['N433'] = true; // Vites 1-3 valfi
+        valveStates['N436'] = true; // K1 hattı basınç valfi
+        break;
       case '4':
-        valveStates['N437'] = true;
+        valveStates['N437'] = true; // Vites 2-4 valfi
+        valveStates['N440'] = true; // K2 hattı basınç valfi
         break;
       case '5':
-      case '7':
-        valveStates['N434'] = true;
+        valveStates['N434'] = true; // Vites 5-7 valfi
+        valveStates['N436'] = true; // K1 hattı basınç valfi
         break;
       case '6':
-      case 'R':
-        valveStates['N438'] = true;
+        valveStates['N438'] = true; // Vites 6-R valfi
+        valveStates['N440'] = true; // K2 hattı basınç valfi
         break;
-      default:
-      // 'BOŞ' veya diğer durumlarda hepsi kapalı
+      case '7':
+        valveStates['N434'] = true; // Vites 5-7 valfi
+        valveStates['N436'] = true; // K1 hattı basınç valfi
+        break;
+      case 'R':
+        valveStates['N438'] = true; // Vites 6-R valfi
+        valveStates['N440'] = true; // K2 hattı basınç valfi
+        break;
+      default: // 'BOŞ' veya diğer durumlar
+      // Tüm valfler kapalı kalacak
         break;
     }
 
     // Vites durumuna göre K1 / K2 seçimi
-    if (['1', '3', '5', '7'].contains(currentGear)) {
-      valveStates['K1'] = true;
+    if (['1', '3', '5', '7'].contains(gear)) {
+      valveStates['K1'] = isK1K2Mode; // Mod açıksa true, değilse false
       valveStates['K2'] = false;
-    } else if (['2', '4', '6', 'R'].contains(currentGear)) {
+    } else if (['2', '4', '6', 'R'].contains(gear)) {
       valveStates['K1'] = false;
-      valveStates['K2'] = true;
+      valveStates['K2'] = isK1K2Mode; // Mod açıksa true, değilse false
     } else {
       // 'BOŞ' durumunda her ikisi de kapalı
       valveStates['K1'] = false;
       valveStates['K2'] = false;
     }
+
+    // K1/K2 kurallarını uygula
+    enforceK1K2Rules();
+
+    // Log kaydı
+    logs.add('Vites $gear: Valf durumları güncellendi - '
+        'N433:${valveStates['N433']}, '
+        'N434:${valveStates['N434']}, '
+        'N437:${valveStates['N437']}, '
+        'N438:${valveStates['N438']}, '
+        'N436:${valveStates['N436']}, '
+        'N440:${valveStates['N440']}, '
+        'K1:${valveStates['K1']}, '
+        'K2:${valveStates['K2']}');
   }
 
   Future<void> _loadPrefs() async {
@@ -1199,53 +1205,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void updateValvesByGear(String gear) {
-    // önce ilgili vites valflerini kapat
-    valveStates['N433'] = false;
-    valveStates['N434'] = false;
-    valveStates['N437'] = false;
-    valveStates['N438'] = false;
-
-    // N436 / N440 basınç valfleri: aktif kavrama hattına göre değişir
-    valveStates['N436'] = false;
-    valveStates['N440'] = false;
-
-    switch (gear) {
-      case '1':
-      case '3':
-      case '5':
-      case '7':
-        valveStates['N436'] = true; // K1 hattı aktif
-        valveStates['K1'] = true;
-        valveStates['K2'] = false;
-        break;
-      case '2':
-      case '4':
-      case '6':
-      case 'R':
-        valveStates['N440'] = true; // K2 hattı aktif
-        valveStates['K1'] = false;
-        valveStates['K2'] = true;
-        break;
-      default:
-      // boşta ise tümü kapalı
-        valveStates['K1'] = false;
-        valveStates['K2'] = false;
-        valveStates['N436'] = false;
-        valveStates['N440'] = false;
-        break;
-    }
-
-    enforceK1K2Rules();
-    notifyListeners();
-  }
-
 
   void enforceK1K2Rules() {
     // Eğer mod pasifse K1 ve K2 daima false olmalı
     if (!isK1K2Mode) {
       valveStates['K1'] = false;
       valveStates['K2'] = false;
+    }
+
+    // Güvenlik: Aynı anda hem K1 hem K2 aktif olamaz
+    if (valveStates['K1'] == true && valveStates['K2'] == true) {
+      valveStates['K2'] = false;
+      logs.add('[GÜVENLİK] K1 ve K2 aynı anda aktif olamaz - K2 kapatıldı');
     }
   }
 
