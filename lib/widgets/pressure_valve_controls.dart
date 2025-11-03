@@ -26,19 +26,21 @@ class _PressureValveControlsState extends State<PressureValveControls> {
     }
   }
 
-  void _setValve(String key, bool value) {
+  void _setValve(String displayKey, String bluetoothKey, bool value) {
     final app = Provider.of<AppState>(context, listen: false);
 
     setState(() {
-      if (key == 'N36') n436Active = value;
-      if (key == 'N40') n440Active = value;
+      if (displayKey == 'N436') n436Active = value;
+      if (displayKey == 'N440') n440Active = value;
     });
 
-    app.valveStates[key] = value;
-    app.notifyListeners();
+    // AppState'teki valveStates'i güncelle (arayüz için)
+    app.valveStates[displayKey] = value;
 
-    // ✅ Her valf için kendi komutu ayrı gönderiliyor
-    app.sendCommand(value ? '$key' : '$key');
+    // Bluetooth'a gerçek komutu gönder (N36, N40)
+    app.sendCommand(value ? bluetoothKey : bluetoothKey);
+
+    app.notifyListeners();
   }
 
   @override
@@ -46,102 +48,92 @@ class _PressureValveControlsState extends State<PressureValveControls> {
     final app = Provider.of<AppState>(context);
     final bothActive = n436Active && n440Active;
 
-    // Artık her zaman aktif
-    final isDisabled = false;
-
-    return Opacity(
-      opacity: isDisabled ? 0.5 : 1.0,
-      child: IgnorePointer(
-        ignoring: isDisabled,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.2),
-              width: 1.0,
-            ),
-          ),
-          padding: const EdgeInsets.all(12),
-          child: Column(
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 1.0,
+        ),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  // 🔹 N436 kontrolü
-                  Expanded(
-                    child: Column(
-                      children: [
-                        const Text(
-                          'N436',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        CustomToggle(
-                          value: n436Active,
-                          onChanged: (v) => _setValve('N36', v),
-                        ),
-                      ],
+              // 🔹 N436 kontrolü (Bluetooth: N36)
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text(
+                      'N436',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-
-                  const SizedBox(width: 12),
-
-                  // 🔹 İkisi birden kontrolü (ama ayrı ayrı komut gönderiyor)
-                  Expanded(
-                    child: Column(
-                      children: [
-                        const Text(
-                          'İkisi Birden',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        CustomToggle(
-                          value: bothActive,
-                          onChanged: (v) {
-                            _setValve('N36', v);
-                            _setValve('N40', v);
-                            // ❌ BOTH_ON / BOTH_OFF komutları artık gönderilmiyor
-                          },
-                        ),
-                      ],
+                    const SizedBox(height: 6),
+                    CustomToggle(
+                      value: n436Active,
+                      onChanged: (v) => _setValve('N436', 'N36', v),
                     ),
-                  ),
+                  ],
+                ),
+              ),
 
-                  const SizedBox(width: 12),
+              const SizedBox(width: 12),
 
-                  // 🔹 N440 kontrolü
-                  Expanded(
-                    child: Column(
-                      children: [
-                        const Text(
-                          'N440',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        CustomToggle(
-                          value: n440Active,
-                          onChanged: (v) => _setValve('N40', v),
-                        ),
-                      ],
+              // 🔹 İkisi birden kontrolü
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text(
+                      'İkisi Birden',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    CustomToggle(
+                      value: bothActive,
+                      onChanged: (v) {
+                        _setValve('N436', 'N36', v);
+                        _setValve('N440', 'N40', v);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              // 🔹 N440 kontrolü (Bluetooth: N40)
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text(
+                      'N440',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    CustomToggle(
+                      value: n440Active,
+                      onChanged: (v) => _setValve('N440', 'N40', v),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }

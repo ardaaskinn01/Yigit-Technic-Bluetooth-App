@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-
 import '../providers/app_state.dart';
 
 class K1K2SystemControl extends StatefulWidget {
   final bool value;
   final Function(bool) onChanged;
-  final AppState app; // AppState'i parametre olarak alıyoruz
+  final AppState app;
 
   const K1K2SystemControl({
     super.key,
@@ -27,15 +26,16 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
     k1k2Active = widget.value;
   }
 
-  Widget _buildValveButton(String valve, bool isDisabled) {
+  // ✅ GÜNCELLENDİ: Butonlar her zaman tıklanabilir
+  Widget _buildValveButton(String valve) {
     final isActive = widget.app.valveStates[valve] ?? false;
 
     return ElevatedButton(
-      onPressed: isDisabled ? null : () => widget.app.toggleValve(valve),
+      onPressed: () => widget.app.toggleValve(valve), // ✅ Her zaman aktif
       style: ElevatedButton.styleFrom(
         backgroundColor: isActive
             ? Colors.lightBlueAccent.withOpacity(0.8)
-            : Colors.white.withOpacity(isDisabled ? 0.05 : 0.15),
+            : Colors.white.withOpacity(0.15), // ✅ Opacity sabit
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(
@@ -48,7 +48,7 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
       child: Text(
         valve,
         style: TextStyle(
-          color: isDisabled ? Colors.white38 : Colors.white,
+          color: Colors.white, // ✅ Her zaman beyaz
           fontWeight: FontWeight.bold,
           fontSize: 14,
         ),
@@ -58,8 +58,6 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
 
   @override
   Widget build(BuildContext context) {
-    final isDisabled = !k1k2Active;
-
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -88,34 +86,25 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
             onChanged: (value) {
               setState(() => k1k2Active = value);
               widget.onChanged(value);
+              // Açılırken ve kapanırken 'k1k2' komutu gönderiliyor
+              widget.app.sendCommand('K1K2');
             },
           ),
-          const SizedBox(height: 4),
-          Text(
-            k1k2Active ? 'Açık (Dış Vites Test)' : 'Kapalı (İç Vites Test)',
-            style: TextStyle(
-              fontSize: 12,
-              color: k1k2Active ? Colors.lightGreenAccent : Colors.white70,
-            ),
-          ),
-
-          const SizedBox(height: 12),
 
           // K1 K2 Butonları
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildValveButton('K1', isDisabled),
-              _buildValveButton('K2', isDisabled),
+              _buildValveButton('K1'), // ✅ Parametre kaldırıldı
+              _buildValveButton('K2'), // ✅ Parametre kaldırıldı
             ],
           ),
-
           const SizedBox(height: 4),
           Text(
-            isDisabled ? "K1/K2 butonları devre dışı" : "K1/K2 butonları aktif",
+            k1k2Active ? "Debriyaj aktif edildi" : "Debriyaj deaktif",
             style: TextStyle(
               fontSize: 10,
-              color: isDisabled ? Colors.white38 : Colors.lightGreenAccent,
+              color: k1k2Active ? Colors.lightGreenAccent : Colors.white38,
               fontStyle: FontStyle.italic,
             ),
           ),

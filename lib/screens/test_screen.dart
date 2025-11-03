@@ -15,7 +15,6 @@ class TestScreen extends StatefulWidget {
 class _TestScreenState extends State<TestScreen> {
   final TextEditingController _nameController = TextEditingController();
   late AppState _app;
-  // 💡 ÇÖZÜM: Diyalogun zaten açık olup olmadığını kontrol eden bayrak
   bool _isDialogShowing = false;
 
   @override
@@ -23,7 +22,7 @@ class _TestScreenState extends State<TestScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _app = Provider.of<AppState>(context, listen: false);
-      _app.addListener(_onTestFinished);
+      _app.onTestCompleted = _onTestCompleted;
     });
   }
 
@@ -48,77 +47,246 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
-  // TestScreen.dart'da _onTestFinished metodunu güncelleyin
-  void _onTestFinished() {
-    // Debug için log ekleyin
-    print('[DEBUG] _onTestFinished called:');
-    print('  - testFinished: ${_app.testFinished}');
-    print('  - completedTests: ${_app.completedTests.length}');
-    print('  - currentPhase: ${_app.currentPhase}');
+  void _onTestCompleted(TestVerisi test) {
+    print('[DEBUG] _onTestCompleted called:');
+    print('  - Test Adı: ${test.testAdi}');
+    print('  - Puan: ${test.puan}');
+    print('  - Sonuç: ${test.sonuc}');
     print('  - _isDialogShowing: $_isDialogShowing');
 
-    // Koşulları genişletin
-    if (_app.testFinished &&
-        _app.completedTests.isNotEmpty &&
-        !_isDialogShowing &&
-        _app.currentPhase == TestPhase.completed) {
-
+    if (!_isDialogShowing) {
       _isDialogShowing = true;
-      final lastTest = _app.completedTests.last;
 
-      // Debug
-      print('[DEBUG] Showing completion dialog for: ${lastTest.testAdi}');
+      print('[DEBUG] Showing completion dialog for: ${test.testAdi}');
 
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext dialogContext) {
-          return AlertDialog(
-            title: const Text("Test Tamamlandı!",
-                style: TextStyle(color: Colors.white, fontSize: 16)),
-            content: Text(
-              "Test Adı: ${lastTest.testAdi}\n"
-                  "Sonuç: ${lastTest.sonuc} (${lastTest.puan} / 100)\n"
-                  "Durum: ${lastTest.fazAdi}\n"
-                  "\nRaporu görüntülemek ister misiniz?",
-              style: TextStyle(color: MekatronikPuanlama.renk(lastTest.puan)),
-            ),
-            actions: <Widget>[
-              TextButton(
-                child: const Text("KAPAT",
-                    style: TextStyle(color: Colors.white, fontSize: 16)),
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                },
-              ),
-              TextButton(
-                child: const Text("RAPORU GÖRÜNTÜLE",
-                    style: TextStyle(color: Colors.white, fontSize: 16)),
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => RaporDetayEkrani(test: lastTest),
-                    ),
-                  );
-                },
-              ),
-            ],
-          );
-        },
-      ).then((_) {
-        _app.testFinished = false;
-        _isDialogShowing = false;
-        print('[DEBUG] Dialog closed, flags reset');
-      });
+      if (_app.mockMode) {
+        _showMockResultDialog(test);
+      } else {
+        _showDeviceResultDialog(test);
+      }
     }
+  }
+
+  void _showMockResultDialog(TestVerisi test) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF003366),
+          title: const Text("Test Tamamlandı!",
+              style: TextStyle(color: Colors.white, fontSize: 16)),
+          content: Text(
+            "Test Adı: ${test.testAdi}\n"
+                "Sonuç: ${test.sonuc} (${test.puan} / 100)\n"
+                "Durum: ${test.fazAdi}\n"
+                "\nRaporu görüntülemek ister misiniz?",
+            style: TextStyle(color: MekatronikPuanlama.renk(test.puan)),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("KAPAT",
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _isDialogShowing = false;
+              },
+            ),
+            TextButton(
+              child: const Text("RAPORU GÖRÜNTÜLE",
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _isDialogShowing = false;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RaporDetayEkrani(test: test),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    ).then((_) {
+      _isDialogShowing = false;
+      print('[DEBUG] Mock dialog closed');
+    });
+  }
+
+  void _showDeviceResultDialog(TestVerisi test) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF003366),
+          title: const Text("Test Tamamlandı!",
+              style: TextStyle(color: Colors.white, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Test Adı: ${test.testAdi}",
+                  style: TextStyle(color: Colors.white)),
+              SizedBox(height: 10),
+              Text("Cihaz puanı alınıyor...",
+                  style: TextStyle(color: Colors.amber)),
+              SizedBox(height: 10),
+              CircularProgressIndicator(),
+              SizedBox(height: 10),
+              Text("25 dakika timeout aktif",
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("İPTAL",
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _isDialogShowing = false;
+                // Testi manuel durdur
+                _app.sendCommand("TEST_STOP");
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    // Cihaz puanı için listener - 25 dakika timeout
+    _app.onDeviceReportReceived = (String report) {
+      if (_isDialogShowing && (report.contains("PUAN:") || _parseScoreFromReport(report) != null)) {
+        Navigator.of(context).pop();
+        _showDeviceReportDialog(test, report);
+      }
+    };
+
+    // 25 dakika timeout
+    Future.delayed(Duration(minutes: 25), () {
+      if (_isDialogShowing) {
+        Navigator.of(context).pop();
+        _showTimeoutDialog(test);
+      }
+    });
+  }
+
+  void _showTimeoutDialog(TestVerisi test) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF003366),
+          title: const Text("Timeout!",
+              style: TextStyle(color: Colors.red, fontSize: 16)),
+          content: Text(
+            "Test 25 dakika içinde tamamlanmadı.\n\n"
+                "Test Adı: ${test.testAdi}\n"
+                "Son durum: ${test.fazAdi}\n\n"
+                "Yerel raporu görüntülemek ister misiniz?",
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("KAPAT",
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _isDialogShowing = false;
+              },
+            ),
+            TextButton(
+              child: const Text("RAPORU GÖRÜNTÜLE",
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _isDialogShowing = false;
+                _showMockResultDialog(test);
+              },
+            ),
+          ],
+        );
+      },
+    ).then((_) {
+      _isDialogShowing = false;
+    });
+  }
+
+  void _showDeviceReportDialog(TestVerisi test, String report) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF003366),
+          title: const Text("Cihaz Raporu",
+              style: TextStyle(color: Colors.white, fontSize: 16)),
+          content: SingleChildScrollView(
+            child: Text(
+              "Test Adı: ${test.testAdi}\n\n"
+                  "Cihaz Raporu:\n$report\n\n"
+                  "Detaylı raporu görüntülemek ister misiniz?",
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("KAPAT",
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _isDialogShowing = false;
+              },
+            ),
+            TextButton(
+              child: const Text("RAPORU GÖRÜNTÜLE",
+                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _isDialogShowing = false;
+                final updatedTest = test.copyWith(
+                  cihazRaporu: report,
+                  puan: _parseScoreFromReport(report) ?? test.puan,
+                );
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RaporDetayEkrani(test: updatedTest),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    ).then((_) {
+      _isDialogShowing = false;
+    });
+  }
+
+  int? _parseScoreFromReport(String report) {
+    try {
+      final match = RegExp(r'PUAN:\s*(\d+)/100').firstMatch(report);
+      if (match != null) {
+        return int.parse(match.group(1)!);
+      }
+
+      final match2 = RegExp(r'(\d+)\s*/\s*100').firstMatch(report);
+      if (match2 != null) {
+        return int.parse(match2.group(1)!);
+      }
+    } catch (e) {
+      print('Puan parse error: $e');
+    }
+    return null;
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _app.removeListener(_onTestFinished);
+    _app.onTestCompleted = null;
     super.dispose();
   }
 
@@ -129,16 +297,12 @@ class _TestScreenState extends State<TestScreen> {
         final isRunning = app.isTesting;
         final isPaused = app.isPaused;
 
-        // Görünen Durum Mesajı: Faz adı ve faz durumu birleştirilebilir
-        final displayStatus = isRunning
-            ? "${app.currentPhase.toString().split('.').last.toUpperCase()}: ${app.phaseStatusMessage}"
-            : app.testStatus;
-
         return Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // Test Adı Girişi
               TextField(
                 controller: _nameController,
                 enabled: !isRunning,
@@ -155,7 +319,6 @@ class _TestScreenState extends State<TestScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-
               // Ana Kontrol Butonları
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -173,10 +336,6 @@ class _TestScreenState extends State<TestScreen> {
                         );
                         return;
                       }
-
-                      // Test adını AppState'e kaydet
-                      _app.setCurrentTestName(name);
-
                       await app.startFullTest(name);
                     },
                     icon: const Icon(Icons.play_arrow, color: Colors.white),
@@ -198,13 +357,10 @@ class _TestScreenState extends State<TestScreen> {
                     ),
                   ),
                   ElevatedButton.icon(
-                    // stopTest metodu güncellendi: isTesting=false ve testFinished=true yapılıyor
-                    onPressed: isRunning
-                        ? () => app.stopTest()
-                        : null,
+                    onPressed: isRunning ? () => app.stopTest() : null,
                     icon: const Icon(Icons.stop, color: Colors.white),
                     label: const Text("Bitir",
-                        style: const TextStyle(color: Colors.white, fontSize: 16)),
+                        style: TextStyle(color: Colors.white, fontSize: 16)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -215,14 +371,14 @@ class _TestScreenState extends State<TestScreen> {
 
               const SizedBox(height: 16),
 
-              // Test Kontrol Butonları - YENİ EKLENDİ
+              // Test Kontrol Butonları
               if (isRunning) ...[
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    // Fazı Atla Butonu
                     ElevatedButton.icon(
                       onPressed: () {
+                        // Faz atlama komutu - Bluetooth modunda çalışacak
                         app.sendCommand("amk");
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -239,19 +395,17 @@ class _TestScreenState extends State<TestScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
                     ),
-
-                    // Testi İptal Et Butonu
                     ElevatedButton.icon(
                       onPressed: () {
                         showDialog(
                           context: context,
                           builder: (BuildContext context) {
                             return AlertDialog(
+                              backgroundColor: const Color(0xFF003366),
                               title: const Text("Testi İptal Et",
                                   style: TextStyle(color: Colors.white)),
                               content: const Text("Testi iptal etmek istediğinizden emin misiniz?",
                                   style: TextStyle(color: Colors.white70)),
-                              backgroundColor: const Color(0xFF003366),
                               actions: [
                                 TextButton(
                                   onPressed: () => Navigator.of(context).pop(),
@@ -264,7 +418,7 @@ class _TestScreenState extends State<TestScreen> {
                                     Navigator.of(context).pop();
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text("Test iptal komutu gönderildi"),
+                                        content: Text("Test iptal edildi"),
                                         backgroundColor: Colors.red,
                                       ),
                                     );
@@ -301,49 +455,20 @@ class _TestScreenState extends State<TestScreen> {
                 ),
                 child: Column(
                   children: [
-                    // AKTİF FAZ BİLGİSİ
-                    if (app.isTesting) ...[
-                      Text(
-                        "AKTİF FAZ: ${_getPhaseName(app.currentPhase)}",
-                        style: TextStyle(
-                          color: Colors.amber,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                    ],
-
-                    Text("DURUM: ${app.testStatus}",
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    SizedBox(height: 8),
-
-                    if (app.isTesting) ...[
-                      SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: app.phaseProgress,
-                        backgroundColor: Colors.grey[800],
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                      ),
-                      SizedBox(height: 4),
-                      Text("İlerleme: ${(app.phaseProgress * 100).toStringAsFixed(1)}%",
-                          style: TextStyle(color: Colors.white70, fontSize: 12)),
-                      SizedBox(height: 4),
-                      Text("Faz Durumu: ${app.phaseStatusMessage}",
-                          style: TextStyle(color: Colors.white70, fontSize: 12)),
-                    ],
-
+                    // Gerçek zamanlı değerler - Bluetooth'tan geliyor
                     Text("Basınç: ${app.pressure.toStringAsFixed(1)} bar",
                         style: const TextStyle(color: Colors.white)),
                     Text("Vites: ${app.gear}",
                         style: const TextStyle(color: Colors.white)),
                     Text("Pompa: ${app.pumpOn ? "Açık" : "Kapalı"}",
                         style: const TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    Text("Min Basınç: ${app.minBasinc.toStringAsFixed(1)} bar",
-                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                    Text("Max Basınç: ${app.maxBasinc.toStringAsFixed(1)} bar",
-                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    // Bluetooth bağlantı bilgisi
+                    SizedBox(height: 8),
+                    Text("Mod: ${app.mockMode ? 'MOCK' : 'BLUETOOTH'}",
+                        style: TextStyle(
+                          color: app.mockMode ? Colors.amber : Colors.green,
+                          fontSize: 12,
+                        )),
                   ],
                 ),
               ),

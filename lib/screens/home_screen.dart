@@ -681,48 +681,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildK1K2Buttons(AppState app) {
-    final isDisabled = !app.isK1K2Mode;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildValveButton(app, 'K1', isDisabled),
-        _buildValveButton(app, 'K2', isDisabled),
-      ],
-    );
-  }
-
-  Widget _buildValveButton(AppState app, String valve, bool isDisabled) {
-    final isActive = app.valveStates[valve] ?? false;
-
-    return ElevatedButton(
-      onPressed: isDisabled ? null : () => app.toggleValve(valve),
-      style: ElevatedButton.styleFrom(
-        backgroundColor:
-            isActive
-                ? Colors.lightBlueAccent.withOpacity(0.8)
-                : Colors.white.withOpacity(isDisabled ? 0.05 : 0.15),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(
-            color: isActive ? Colors.lightBlueAccent : Colors.transparent,
-            width: 1.5,
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      ),
-      child: Text(
-        valve,
-        style: TextStyle(
-          color: isDisabled ? Colors.white38 : Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 16,
-        ),
-      ),
-    );
-  }
-
   Widget _buildTestModeControls(AppState app) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),

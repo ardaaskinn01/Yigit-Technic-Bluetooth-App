@@ -14,6 +14,7 @@ class RaporDetayEkrani extends StatelessWidget {
   const RaporDetayEkrani({super.key, required this.test});
 
   // 📄 PDF oluşturucu
+  // 📄 PDF oluşturucu
   Future<Uint8List> _generatePdf() async {
     final pdf = pw.Document();
     final dateFormatted = DateFormat('dd.MM.yyyy HH:mm').format(test.tarih);
@@ -39,12 +40,12 @@ class RaporDetayEkrani extends StatelessWidget {
                 ),
                 pw.SizedBox(height: 10),
                 pw.Divider(),
-                pw.Text("Test Adı: ${test.testAdi}", style: pw.TextStyle(fontSize: 16)),
+                pw.Text("Test Adi: ${test.testAdi}", style: pw.TextStyle(fontSize: 16)),
                 pw.Text("Tarih: $dateFormatted", style: pw.TextStyle(fontSize: 14)),
                 pw.SizedBox(height: 20),
 
                 pw.Text(
-                  "Ölçüm Sonuçları",
+                  "Ölcüm Sonuclari",
                   style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
                 ),
                 pw.SizedBox(height: 10),
@@ -52,12 +53,30 @@ class RaporDetayEkrani extends StatelessWidget {
                 pw.Table(
                   border: pw.TableBorder.all(color: PdfColors.grey400),
                   children: [
-                    _buildPdfRow("Minimum Basınç", "${test.minBasinc.toStringAsFixed(2)} bar"),
-                    _buildPdfRow("Maksimum Basınç", "${test.maxBasinc.toStringAsFixed(2)} bar"),
-                    _buildPdfRow("Pompa Çalışma Süresi (Genel)", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
-                    _buildPdfRow("Vites Değişim Sayısı", "${test.vitesSayisi}"),
-                    _buildPdfRow("Puan", "${test.puan}/100"), // 100'e güncellendi
-                    _buildPdfRow("Sonuç", test.sonuc),
+                    _buildPdfRow("Minimum Basinc", "${test.minBasinc.toStringAsFixed(2)} bar"),
+                    _buildPdfRow("Maksimum Basinc", "${test.maxBasinc.toStringAsFixed(2)} bar"),
+                    _buildPdfRow("Pompa Calisma Suresi (Genel)", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
+                    _buildPdfRow("Puan", "${test.puan}/100"),
+                  ],
+                ),
+
+                pw.SizedBox(height: 20),
+
+                // FAZ PUANLARI TABLOSU EKLENDİ
+                pw.Text(
+                  "Faz Puanlari",
+                  style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+                ),
+                pw.SizedBox(height: 10),
+
+                pw.Table(
+                  border: pw.TableBorder.all(color: PdfColors.grey400),
+                  children: [
+                    _buildPdfRow("FAZ 0 - Pompa Yükselme", "/10 Puan"),
+                    _buildPdfRow("FAZ 2 - Sizdirmazlik Testi", "/20 Puan"),
+                    _buildPdfRow("FAZ 3 - Vites Testleri", "/35 Puan"),
+                    _buildPdfRow("FAZ 4 - Dayaniklilik Testi", "/20 Puan"),
+                    _buildPdfRow("Bonus Puan", "/15 Puan"),
                   ],
                 ),
               ],
@@ -152,7 +171,6 @@ class RaporDetayEkrani extends StatelessWidget {
                 _buildInfoRow("Min Basınç", "${test.minBasinc.toStringAsFixed(2)} bar"),
                 _buildInfoRow("Max Basınç", "${test.maxBasinc.toStringAsFixed(2)} bar"),
                 _buildInfoRow("Pompa Süresi", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
-                _buildInfoRow("Vites Değişimleri", "${test.vitesSayisi}"),
                 _buildInfoRow("Puan", "${test.puan}/100"),
                 _buildInfoRow("Sonuç", test.sonuc),
 
