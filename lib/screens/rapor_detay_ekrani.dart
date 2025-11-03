@@ -15,6 +15,7 @@ class RaporDetayEkrani extends StatelessWidget {
 
   // 📄 PDF oluşturucu
   // 📄 PDF oluşturucu
+  // 📄 PDF oluşturucu
   Future<Uint8List> _generatePdf() async {
     final pdf = pw.Document();
     final dateFormatted = DateFormat('dd.MM.yyyy HH:mm').format(test.tarih);
@@ -55,6 +56,9 @@ class RaporDetayEkrani extends StatelessWidget {
                   children: [
                     _buildPdfRow("Minimum Basinc", "${test.minBasinc.toStringAsFixed(2)} bar"),
                     _buildPdfRow("Maksimum Basinc", "${test.maxBasinc.toStringAsFixed(2)} bar"),
+                    _buildPdfRow("Ortalama Basinc", "${test.ortalamaBasinc.toStringAsFixed(1)} bar"),
+                    _buildPdfRow("Düşük Basınç Sayısı", "${test.dusukBasincSayisi}"),
+                    _buildPdfRow("Toplam Vites Geçişi", "${test.toplamVitesGecisi}"),
                     _buildPdfRow("Pompa Calisma Suresi (Genel)", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
                     _buildPdfRow("Puan", "${test.puan}/100"),
                   ],
@@ -62,7 +66,7 @@ class RaporDetayEkrani extends StatelessWidget {
 
                 pw.SizedBox(height: 20),
 
-                // FAZ PUANLARI TABLOSU EKLENDİ
+                // FAZ PUANLARI TABLOSU
                 pw.Text(
                   "Faz Puanlari",
                   style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
@@ -72,11 +76,12 @@ class RaporDetayEkrani extends StatelessWidget {
                 pw.Table(
                   border: pw.TableBorder.all(color: PdfColors.grey400),
                   children: [
-                    _buildPdfRow("FAZ 0 - Pompa Yükselme", "/10 Puan"),
-                    _buildPdfRow("FAZ 2 - Sizdirmazlik Testi", "/20 Puan"),
-                    _buildPdfRow("FAZ 3 - Vites Testleri", "/35 Puan"),
-                    _buildPdfRow("FAZ 4 - Dayaniklilik Testi", "/20 Puan"),
-                    _buildPdfRow("Bonus Puan", "/15 Puan"),
+                    _buildPdfRow("FAZ 0 - Pompa Yükselme", "${test.fazPuanlari['faz0'] ?? 0}/10 Puan"),
+                    _buildPdfRow("FAZ 1 - Dengeleme", "${test.fazPuanlari['faz1'] ?? 0}/15 Puan"),
+                    _buildPdfRow("FAZ 2 - Valf Test", "${test.fazPuanlari['faz2'] ?? 0}/20 Puan"),
+                    _buildPdfRow("FAZ 3 - Vites Testleri", "${test.fazPuanlari['faz3'] ?? 0}/35 Puan"),
+                    _buildPdfRow("FAZ 4 - Dayaniklilik Testi", "${test.fazPuanlari['faz4'] ?? 0}/20 Puan"),
+                    _buildPdfRow("Bonus Puan", "${test.fazPuanlari['bonus'] ?? 0}/15 Puan"),
                   ],
                 ),
               ],
@@ -165,14 +170,29 @@ class RaporDetayEkrani extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                _buildInfoRow("Test Adı", test.testAdi),
-                _buildInfoRow("Tarih", dateFormatted),
-                _buildInfoRow("Faz", test.fazAdi),
-                _buildInfoRow("Min Basınç", "${test.minBasinc.toStringAsFixed(2)} bar"),
-                _buildInfoRow("Max Basınç", "${test.maxBasinc.toStringAsFixed(2)} bar"),
-                _buildInfoRow("Pompa Süresi", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
-                _buildInfoRow("Puan", "${test.puan}/100"),
-                _buildInfoRow("Sonuç", test.sonuc),
+                if (test.cihazRaporu != null) ...[
+                  const SizedBox(height: 20),
+                  const Text("Detaylı Test Raporu",
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Ortalama Basınç
+                  _buildInfoRow("Ortalama Basınç", "${test.ortalamaBasinc.toStringAsFixed(1)} bar"),
+
+                  // Düşük Basınç Bilgisi
+                  _buildInfoRow("Düşük Basınç Sayısı", "${test.dusukBasincSayisi}"),
+
+                  // Vites Geçişleri
+                  _buildInfoRow("Toplam Vites Geçişi", "${test.toplamVitesGecisi}"),
+
+                  // FAZ Puanları
+                  const SizedBox(height: 10),
+                  const Text("Faz Puanları",
+                    style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  ..._buildFazPuanlari(test),
+                ],
 
                 const SizedBox(height: 40),
                 ElevatedButton.icon(
@@ -203,6 +223,40 @@ class RaporDetayEkrani extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  List<Widget> _buildFazPuanlari(TestVerisi test) {
+    final fazlar = [
+      {'label': 'FAZ 0 - Pompa', 'key': 'faz0', 'max': 10},
+      {'label': 'FAZ 1 - Dengeleme', 'key': 'faz1', 'max': 15},
+      {'label': 'FAZ 2 - Valf Test', 'key': 'faz2', 'max': 20},
+      {'label': 'FAZ 3 - Vites Test', 'key': 'faz3', 'max': 35},
+      {'label': 'FAZ 4 - Dayanıklılık', 'key': 'faz4', 'max': 20},
+    ];
+
+    return fazlar.map((faz) {
+      final puan = test.fazPuanlari[faz['key']] ?? 0;
+      final maxPuan = faz['max'] as int;
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("${faz['label']}:", style: const TextStyle(color: Colors.white70)),
+            Text("$puan/$maxPuan",
+                style: TextStyle(color: _getPuanColor(puan, maxPuan), fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
+  Color _getPuanColor(int puan, int maxPuan) {
+    final yuzde = (puan / maxPuan) * 100;
+    if (yuzde >= 80) return Colors.green;
+    if (yuzde >= 60) return Colors.orange;
+    return Colors.red;
   }
 
   Widget _buildInfoRow(String label, String value) {

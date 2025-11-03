@@ -215,67 +215,74 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   void _showDeviceReportDialog(TestVerisi test, String report) {
+    // Puan ve durumu parse et
+    final puan = _parseScoreFromReport(report) ?? test.puan;
+    final durum = _parseDurumFromReport(report) ?? test.sonuc;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF003366),
-          title: const Text("Cihaz Raporu",
-              style: TextStyle(color: Colors.white, fontSize: 16)),
+          title: Text("Test Tamamlandı - $durum",
+              style: TextStyle(
+                  color: MekatronikPuanlama.renk(puan),
+                  fontSize: 16
+              )),
           content: SingleChildScrollView(
-            child: Text(
-              "Test Adı: ${test.testAdi}\n\n"
-                  "Cihaz Raporu:\n$report\n\n"
-                  "Detaylı raporu görüntülemek ister misiniz?",
-              style: TextStyle(color: Colors.white70),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("Test Adı: ${test.testAdi}",
+                    style: TextStyle(color: Colors.white)),
+                SizedBox(height: 8),
+                Text("Puan: $puan/100",
+                    style: TextStyle(
+                        color: MekatronikPuanlama.renk(puan),
+                        fontWeight: FontWeight.bold
+                    )),
+                SizedBox(height: 8),
+                Text("Durum: $durum",
+                    style: TextStyle(color: Colors.white70)),
+                SizedBox(height: 12),
+                Text("Detaylı raporu görüntülemek ister misiniz?",
+                    style: TextStyle(color: Colors.white70)),
+              ],
             ),
           ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text("KAPAT",
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _isDialogShowing = false;
-              },
-            ),
-            TextButton(
-              child: const Text("RAPORU GÖRÜNTÜLE",
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _isDialogShowing = false;
-                final updatedTest = test.copyWith(
-                  cihazRaporu: report,
-                  puan: _parseScoreFromReport(report) ?? test.puan,
-                );
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => RaporDetayEkrani(test: updatedTest),
-                  ),
-                );
-              },
-            ),
-          ],
+          // ... actions aynı kalabilir
         );
       },
-    ).then((_) {
-      _isDialogShowing = false;
-    });
+    );
+  }
+
+  String? _parseDurumFromReport(String report) {
+    if (report.contains("DURUM: MÜKEMMEL")) return "MÜKEMMEL";
+    if (report.contains("DURUM: İYİ")) return "İYİ";
+    if (report.contains("DURUM: ORTA")) return "ORTA";
+    if (report.contains("DURUM: SORUNLU")) return "SORUNLU";
+    if (report.contains("DURUM: KÖTÜ")) return "KÖTÜ";
+    return null;
   }
 
   int? _parseScoreFromReport(String report) {
     try {
-      final match = RegExp(r'PUAN:\s*(\d+)/100').firstMatch(report);
-      if (match != null) {
-        return int.parse(match.group(1)!);
+      // İki farklı puan formatını kontrol et
+      final mekatronikMatch = RegExp(r'TOPLAM PUAN:\s*(\d+)/100').firstMatch(report);
+      if (mekatronikMatch != null) {
+        return int.parse(mekatronikMatch.group(1)!);
       }
 
-      final match2 = RegExp(r'(\d+)\s*/\s*100').firstMatch(report);
-      if (match2 != null) {
-        return int.parse(match2.group(1)!);
+      final genelMatch = RegExp(r'GENEL PUAN:\s*([\d.]+)/100').firstMatch(report);
+      if (genelMatch != null) {
+        return double.parse(genelMatch.group(1)!).round();
+      }
+
+      final puanMatch = RegExp(r'PUAN:\s*(\d+)/100').firstMatch(report);
+      if (puanMatch != null) {
+        return int.parse(puanMatch.group(1)!);
       }
     } catch (e) {
       print('Puan parse error: $e');

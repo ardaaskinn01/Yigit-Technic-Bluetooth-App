@@ -787,12 +787,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (isActive) {
                       // Aktif modu durdur (sadece T8 için)
                       if (isTest8) {
-                        app.stopTestMode();
+                        app.stopTestMode(mode);
                       }
                     } else {
                       // Yeni mod başlat veya T8 ile durdur
                       if (isTest8 && app.isTestModeActive) {
-                        app.stopTestMode();
+                        app.stopTestMode(mode);
                       } else {
                         app.startTestMode(mode);
                       }

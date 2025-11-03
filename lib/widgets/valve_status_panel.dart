@@ -35,7 +35,7 @@ class ValveStatusPanel extends StatelessWidget {
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
             children: [
-              _valveItem('N435', 'K1', states['N439'] ?? false),
+              _valveItem('N435', 'K1', states['N435'] ?? false),
               _valveItem('N438', 'Vites 6-R', states['N438'] ?? false),
               _valveItem('N434', 'Vites 5-7', states['N434'] ?? false),
               _valveItem('N440', 'Basınç-2', states['N440'] ?? false),
