@@ -115,6 +115,13 @@ class _TestScreenState extends State<TestScreen> {
     });
   }
 
+  String _formatDuration(int totalSeconds) {
+    final duration = Duration(seconds: totalSeconds);
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return "$minutes:$seconds";
+  }
+
   void _showDeviceResultDialog(TestVerisi test) {
     showDialog(
       context: context,
@@ -415,7 +422,7 @@ class _TestScreenState extends State<TestScreen> {
                                   style: TextStyle(color: Colors.white70)),
                               actions: [
                                 TextButton(
-                                  onPressed: () => Navigator.of(context).pop(),
+                                  onPressed: () => app.stopTest(),
                                   child: const Text("Hayır",
                                       style: TextStyle(color: Colors.white)),
                                 ),
@@ -457,25 +464,76 @@ class _TestScreenState extends State<TestScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.white10,
+                  color: Colors.blueGrey[800],
                   borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blueAccent),
                 ),
                 child: Column(
                   children: [
-                    // Gerçek zamanlı değerler - Bluetooth'tan geliyor
-                    Text("Basınç: ${app.pressure.toStringAsFixed(1)} bar",
-                        style: const TextStyle(color: Colors.white)),
-                    Text("Vites: ${app.gear}",
-                        style: const TextStyle(color: Colors.white)),
-                    Text("Pompa: ${app.pumpOn ? "Açık" : "Kapalı"}",
-                        style: const TextStyle(color: Colors.white)),
-                    // Bluetooth bağlantı bilgisi
-                    SizedBox(height: 8),
-                    Text("Mod: ${app.mockMode ? 'MOCK' : 'BLUETOOTH'}",
+                    Text("TEST DURUMU",
                         style: TextStyle(
-                          color: app.mockMode ? Colors.amber : Colors.green,
-                          fontSize: 12,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         )),
+                    SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Column(
+                          children: [
+                            Icon(Icons.speed, color: Colors.orange),
+                            Text("Vites", style: TextStyle(color: Colors.white70)),
+                            Text(app.currentVites,
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18
+                                )),
+                          ],
+                        ),
+
+                        Column(
+                          children: [
+                            Icon(Icons.timer_outlined, color: Colors.blueAccent),
+                            Text("Süre", style: TextStyle(color: Colors.white70)),
+                            Text(_formatDuration(app.elapsedSeconds), // app.elapsedSeconds kullanıldı
+                                style: TextStyle(
+                                    color: Colors.blueAccent,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16
+                                )),
+                          ],
+                        ),
+
+                        Column(
+                          children: [
+                            Icon(Icons.format_list_numbered_outlined, color: Colors.green),
+                            Text("Faz", style: TextStyle(color: Colors.white70)),
+                            Text(app.currentFaz.split(':')[0],
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16
+                                )),
+                          ],
+                        ),
+                        Column(
+                          children: [
+                            Icon(
+                                app.pumpOn ? Icons.power : Icons.power_off,
+                                color: app.pumpOn ? Colors.green : Colors.red
+                            ),
+                            Text("Pompa", style: TextStyle(color: Colors.white70)),
+                            Text(app.pumpOn ? "AÇIK" : "KAPALI",
+                                style: TextStyle(
+                                    color: app.pumpOn ? Colors.green : Colors.red,
+                                    fontWeight: FontWeight.bold
+                                )),
+                          ],
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
