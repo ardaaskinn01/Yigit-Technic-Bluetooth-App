@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
@@ -16,25 +17,43 @@ class PressureMonitorWidget extends StatefulWidget {
 class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
   PressureMode currentMode = PressureMode.mode42_60;
   double minPressure = 42.0;
-  double criticalThreshold = 42.0;
   List<double> pressureHistory = [];
   Timer? _timer;
+
+  // Kaydırma için değişkenler
+  double _currentScrollPosition = 0.0;
+  bool _isScrolling = false;
+  final int _maxHistoryPoints = 300; // 5 dakika (300 * 1sn)
+  final int _visiblePoints = 60; // 2 dakika görünüm
+
+  // 🆕 YENİ: Kaydırma için değişkenler
+  double _lastDragX = 0.0;
 
   @override
   void initState() {
     super.initState();
 
-    _timer = Timer.periodic(const Duration(milliseconds: 400), (_) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       final app = context.read<AppState>();
 
       if (app.pressure > 0) {
         setState(() {
-          double safePressure = app.pressure;
+          double actualPressure = app.pressure;
 
-          if (safePressure < minPressure) safePressure = minPressure;
+          // Tüm geçmişi kaydet
+          pressureHistory.add(actualPressure);
+          if (pressureHistory.length > _maxHistoryPoints) {
+            pressureHistory.removeAt(0);
+          }
 
-          pressureHistory.add(safePressure);
-          if (pressureHistory.length > 150) pressureHistory.removeAt(0);
+          // Otomatik olarak en sona kaydır (kullanıcı kaydırmıyorsa)
+          if (!_isScrolling) {
+            _currentScrollPosition = lerpDouble(
+              _currentScrollPosition,
+              pressureHistory.length.toDouble(),
+              0.2,
+            )!;
+          }
         });
       }
     });
@@ -64,31 +83,90 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
     });
   }
 
-  // 🆕 DÜZELTME: Doğru sıralama için spotları oluştur
+  // Kaydırılabilir grafik için spotlar
   List<FlSpot> _getChartSpots() {
     if (pressureHistory.isEmpty) return [];
 
     final spots = <FlSpot>[];
-    final totalPoints = pressureHistory.length;
 
-    // 🆕 DÜZELTME: En eski veri solda (0s), en yeni veri sağda (60s)
-    for (int i = 0; i < totalPoints; i++) {
-      // Zamanı saniye cinsinden hesapla (en eski 60, en yeni 0)
-      double timeInSeconds = 60 - (totalPoints - 1 - i) * 0.5;
-      spots.add(FlSpot(timeInSeconds, pressureHistory[i]));
+    // Görünür aralığı hesapla
+    int startIndex = (_currentScrollPosition - _visiblePoints).clamp(0, pressureHistory.length - 1).toInt();
+    int endIndex = _currentScrollPosition.clamp(0, pressureHistory.length).toInt();
+
+    for (int i = startIndex; i < endIndex; i++) {
+      // Zamanı saniye cinsinden hesapla (en solda en eski, en sağda en yeni)
+      double timeFromStart = (i - startIndex).toDouble();
+      spots.add(FlSpot(timeFromStart, pressureHistory[i]));
     }
 
     return spots;
   }
 
-  // 🆕 DÜZELTME: Zaman etiketleri (0s solda, 60s sağda)
+  // 🆕 DÜZELTİLDİ: Doğru event handler
+  void _onChartDragStart(DragStartDetails details) {
+    setState(() {
+      _isScrolling = true;
+      _lastDragX = details.localPosition.dx;
+    });
+  }
+
+  void _onChartDragUpdate(DragUpdateDetails details) {
+    setState(() {
+      // Kaydırma miktarını hesapla
+      double deltaX = details.localPosition.dx - _lastDragX;
+
+      _currentScrollPosition -= (deltaX / context.size!.width) * _visiblePoints; // Duyarlılık ayarı
+
+      // Sınırları kontrol et
+      _currentScrollPosition = _currentScrollPosition.clamp(
+          _visiblePoints.toDouble(),
+          pressureHistory.length.toDouble()
+      );
+
+      _lastDragX = details.localPosition.dx;
+    });
+  }
+
+  void _onChartDragEnd(DragEndDetails details) {
+    // Kaydırma bittiğinde otomatik olarak canlıya dönmesin
+    setState(() {
+      _isScrolling = true; // Kayıtlı modda kalmaya devam et
+    });
+  }
+
+  // En sona git butonu
+  void _scrollToLatest() {
+    setState(() {
+      _currentScrollPosition = pressureHistory.length.toDouble();
+      _isScrolling = false;
+    });
+  }
+
+  // Zaman etiketleri (kaydırılabilir)
   Widget _bottomTitleWidgets(double value, TitleMeta meta) {
-    // Sadece tam sayı saniyelerde etiket göster
-    if (value % 10 == 0 && value >= 0) {
+    if (value % 30 == 0 && value >= 0) {
+      // Gerçek zamanı hesapla
+      int startIndex = (_currentScrollPosition - _visiblePoints).clamp(0, pressureHistory.length - 1).toInt();
+      int dataIndex = startIndex + value.toInt();
+
+      String timeText;
+      if (dataIndex >= pressureHistory.length - 1) {
+        timeText = 'Şimdi';
+      } else {
+        int secondsAgo = pressureHistory.length - 1 - dataIndex;
+        if (secondsAgo < 60) {
+          timeText = '${secondsAgo}s';
+        } else if (secondsAgo < 3600) {
+          timeText = '${secondsAgo ~/ 60}d';
+        } else {
+          timeText = '${secondsAgo ~/ 3600}s';
+        }
+      }
+
       return SideTitleWidget(
         axisSide: meta.axisSide,
         child: Text(
-          '${value.toInt()}s',
+          timeText,
           style: const TextStyle(
             color: Colors.white70,
             fontSize: 10,
@@ -113,6 +191,45 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
     return const SizedBox();
   }
 
+  double _calculateVisibleMinPressure() {
+    try {
+      int startIndex = (_currentScrollPosition - _visiblePoints).clamp(0, pressureHistory.length - 1).toInt();
+      int endIndex = _currentScrollPosition.clamp(0, pressureHistory.length).toInt();
+
+      // Görünür aralıktaki verileri al
+      List<double> visibleData = pressureHistory.sublist(startIndex, endIndex);
+
+      // Liste boşsa varsayılan değer döndür
+      if (visibleData.isEmpty) return minPressure;
+
+      // Minimum değeri bul ve margin ekle
+      double minVisible = visibleData.reduce((a, b) => a < b ? a : b);
+      return (minVisible - 2).clamp(0, 60);
+    } catch (e) {
+      // Hata durumunda varsayılan değer
+      return minPressure;
+    }
+  }
+
+// 🆕 YENİ: Güvenli maximum basınç hesaplama (opsiyonel, daha iyi görünüm için)
+  double _calculateVisibleMaxPressure() {
+    try {
+      int startIndex = (_currentScrollPosition - _visiblePoints).clamp(0, pressureHistory.length - 1).toInt();
+      int endIndex = _currentScrollPosition.clamp(0, pressureHistory.length).toInt();
+
+      List<double> visibleData = pressureHistory.sublist(startIndex, endIndex);
+
+      if (visibleData.isEmpty) {
+        return currentMode == PressureMode.mode42_60 ? 60.0 : 52.0;
+      }
+
+      double maxVisible = visibleData.reduce((a, b) => a > b ? a : b);
+      return (maxVisible + 2).clamp(0, currentMode == PressureMode.mode42_60 ? 60.0 : 52.0);
+    } catch (e) {
+      return currentMode == PressureMode.mode42_60 ? 60.0 : 52.0;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -134,7 +251,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 🧭 ÜST BİLGİ SATIRI - Tüm bilgiler burada
+          // ÜST BİLGİ SATIRI
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -153,7 +270,14 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                             pressureHistory.isNotEmpty
                                 ? pressureHistory.reduce((a, b) => a < b ? a : b).toStringAsFixed(1)
                                 : "0.0",
-                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                color: pressureHistory.isNotEmpty &&
+                                    pressureHistory.reduce((a, b) => a < b ? a : b) < 42.0
+                                    ? Colors.redAccent
+                                    : Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold
+                            ),
                           ),
                         ],
                       ),
@@ -172,17 +296,17 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                         ],
                       ),
                       const SizedBox(width: 8),
-                      // Geçmiş süresi
+                      // Kaydırma durumu
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.white10,
+                          color: _isScrolling ? Colors.blue.withOpacity(0.3) : Colors.white10,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          '${pressureHistory.length ~/ 2}s',
-                          style: const TextStyle(
-                            color: Colors.white60,
+                          _isScrolling ? '📜 Kayıtlı' : '⏱️ Canlı',
+                          style: TextStyle(
+                            color: _isScrolling ? Colors.blueAccent : Colors.white60,
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
                           ),
@@ -191,17 +315,42 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    '📈 Basınç Monitörü (60sn)',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
+                  // Kaydırma bilgisi
+                  Row(
+                    children: [
+                      if (_isScrolling)
+                        Text(
+                          '${pressureHistory.length - _currentScrollPosition.toInt()}s önce',
+                          style: const TextStyle(
+                            color: Colors.blueAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        )
+                      else if (pressureHistory.isNotEmpty && pressureHistory.any((p) => p < 42.0))
+                        Text(
+                          '⚠️ Kritik: Basınç 42 bar altına düştü!',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        )
+                      else
+                        Text(
+                          '📈 Basınç Monitörü (${_maxHistoryPoints ~/ 60}dakika)',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),
 
+              // Mevcut basınç
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Row(
@@ -210,7 +359,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                     Text(
                       '${currentPressure.toStringAsFixed(1)}',
                       style: TextStyle(
-                        fontSize: 36, // 🆕 DAHA DA BÜYÜK (32'den 36'ya)
+                        fontSize: 36,
                         fontWeight: FontWeight.bold,
                         color: pressureColor,
                       ),
@@ -219,7 +368,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                     const Text(
                       'bar',
                       style: TextStyle(
-                        fontSize: 20, // 🆕 DAHA DA BÜYÜK (18'den 20'ye)
+                        fontSize: 20,
                         color: Colors.white70,
                       ),
                     ),
@@ -227,152 +376,227 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                 ),
               ),
 
-              // Sağ: Toggle Switch
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white10,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      '42-60',
-                      style: TextStyle(
-                        color: currentMode == PressureMode.mode42_60 ? Colors.lightBlueAccent : Colors.white60,
-                        fontSize: 10,
-                        fontWeight: currentMode == PressureMode.mode42_60 ? FontWeight.bold : FontWeight.normal,
+              // Sağ: Toggle Switch ve En sona git butonu
+              Column(
+                children: [
+                  // Toggle Switch
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.white10,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          '42-60',
+                          style: TextStyle(
+                            color: currentMode == PressureMode.mode42_60 ? Colors.lightBlueAccent : Colors.white60,
+                            fontSize: 10,
+                            fontWeight: currentMode == PressureMode.mode42_60 ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Transform.scale(
+                          scale: 0.7,
+                          child: Switch(
+                            value: currentMode == PressureMode.mode42_52,
+                            onChanged: (_) => togglePressureMode(),
+                            activeColor: Colors.lightBlueAccent,
+                            inactiveThumbColor: Colors.white54,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '42-52',
+                          style: TextStyle(
+                            color: currentMode == PressureMode.mode42_52 ? Colors.lightBlueAccent : Colors.white60,
+                            fontSize: 10,
+                            fontWeight: currentMode == PressureMode.mode42_52 ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  // En sona git butonu
+                  if (_isScrolling)
+                    GestureDetector(
+                      onTap: _scrollToLatest,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.refresh, size: 12, color: Colors.greenAccent),
+                            SizedBox(width: 4),
+                            Text(
+                              'Canlı',
+                              style: TextStyle(
+                                color: Colors.greenAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 2),
-                    Transform.scale(
-                      scale: 0.7,
-                      child: Switch(
-                        value: currentMode == PressureMode.mode42_52,
-                        onChanged: (_) => togglePressureMode(),
-                        activeColor: Colors.lightBlueAccent,
-                        inactiveThumbColor: Colors.white54,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    Text(
-                      '42-52',
-                      style: TextStyle(
-                        color: currentMode == PressureMode.mode42_52 ? Colors.lightBlueAccent : Colors.white60,
-                        fontSize: 10,
-                        fontWeight: currentMode == PressureMode.mode42_52 ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                  ],
-                ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 4),
 
-          // 📊 DEV GRAFİK
+          // 📊 KAYDIRILABİLİR GRAFİK - DÜZELTİLDİ
           SizedBox(
-            height: 200, // 🆕 ÇOK DAHA YÜKSEK (180'den 220'ye)
-            child: LineChart(
-              LineChartData(
-                clipData: const FlClipData.all(),
-                minY: minPressure,
-                maxY: currentMode == PressureMode.mode42_60 ? 60.0 : 52.0,
-                minX: 0,
-                maxX: 60,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: true,
-                  drawHorizontalLine: true,
-                  horizontalInterval: 5,
-                  verticalInterval: 10,
-                  getDrawingHorizontalLine: (_) => FlLine(
-                    color: Colors.white.withOpacity(0.15),
-                    strokeWidth: 1,
-                  ),
-                  getDrawingVerticalLine: (_) => FlLine(
-                    color: Colors.white.withOpacity(0.08),
-                    strokeWidth: 1,
-                  ),
-                ),
-                titlesData: FlTitlesData(
-                  rightTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30, // 🆕 DAHA KÜÇÜK
-                      getTitlesWidget: _rightTitleWidgets,
+            height: 200,
+            child: GestureDetector(
+              onHorizontalDragStart: _onChartDragStart,
+              onHorizontalDragUpdate: _onChartDragUpdate,
+              onHorizontalDragEnd: _onChartDragEnd,
+              child: LineChart(
+                LineChartData(
+                  clipData: const FlClipData.all(),
+                  // 🆕 DÜZELTME: Güvenli minY hesaplama
+                  minY: pressureHistory.isNotEmpty
+                      ? _calculateVisibleMinPressure() // Yeni metod
+                      : minPressure,
+                  maxY: currentMode == PressureMode.mode42_60 ? 60.0 : 52.0,
+                  minX: 0,
+                  maxX: _visiblePoints.toDouble(),
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: true,
+                    drawHorizontalLine: true,
+                    horizontalInterval: 5,
+                    verticalInterval: 30,
+                    getDrawingHorizontalLine: (_) => FlLine(
+                      color: Colors.white.withOpacity(0.15),
+                      strokeWidth: 1,
+                    ),
+                    getDrawingVerticalLine: (_) => FlLine(
+                      color: Colors.white.withOpacity(0.08),
+                      strokeWidth: 1,
                     ),
                   ),
-                  leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 16, // 🆕 DAHA KÜÇÜK
-                      interval: 10,
-                      getTitlesWidget: _bottomTitleWidgets,
+                  titlesData: FlTitlesData(
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 30,
+                        getTitlesWidget: _rightTitleWidgets,
+                      ),
                     ),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: _getChartSpots(),
-                    isCurved: true,
-                    color: pressureColor,
-                    barWidth: 3.5, // 🆕 DAHA KALIN
-                    dotData: FlDotData(show: false),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        colors: [
-                          pressureColor.withOpacity(0.4),
-                          pressureColor.withOpacity(0.15),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
+                    leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 20,
+                        interval: 30,
+                        getTitlesWidget: _bottomTitleWidgets,
                       ),
                     ),
                   ),
-                ],
-                extraLinesData: ExtraLinesData(
-                  horizontalLines: [
-                    HorizontalLine(
-                      y: 42.0,
-                      color: Colors.red.withOpacity(0.7),
-                      strokeWidth: 2,
-                      dashArray: [5, 5],
+                  borderData: FlBorderData(show: false),
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: _getChartSpots(),
+                      isCurved: true,
+                      color: pressureColor,
+                      barWidth: 3.5,
+                      dotData: FlDotData(show: false),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        gradient: LinearGradient(
+                          colors: [
+                            pressureColor.withOpacity(0.4),
+                            pressureColor.withOpacity(0.15),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
                     ),
                   ],
-                ),
-                lineTouchData: LineTouchData(
-                  touchTooltipData: LineTouchTooltipData(
-                    getTooltipItems: (List<LineBarSpot> touchedSpots) {
-                      return touchedSpots.map((spot) {
-                        final secondsFromStart = spot.x;
-                        String timeText;
-                        if (secondsFromStart == 60) {
-                          timeText = 'Şimdi';
-                        } else {
-                          timeText = '${(60 - secondsFromStart).toInt()}s önce';
-                        }
+                  extraLinesData: ExtraLinesData(
+                    horizontalLines: [
+                      HorizontalLine(
+                        y: 42.0,
+                        color: Colors.red.withOpacity(0.7),
+                        strokeWidth: 2,
+                        dashArray: [5, 5],
+                      ),
+                      if (pressureHistory.isNotEmpty && pressureHistory.any((p) => p < 42.0))
+                        HorizontalLine(
+                          y: pressureHistory.reduce((a, b) => a < b ? a : b),
+                          color: Colors.orange.withOpacity(0.7),
+                          strokeWidth: 1,
+                          dashArray: [3, 3],
+                        ),
+                    ],
+                  ),
+                  lineTouchData: LineTouchData(
+                    enabled: true,
+                    touchTooltipData: LineTouchTooltipData(
+                      getTooltipItems: (List<LineBarSpot> touchedSpots) {
+                        return touchedSpots.map((spot) {
+                          // Gerçek zamanı hesapla
+                          int startIndex = (_currentScrollPosition - _visiblePoints).clamp(0, pressureHistory.length - 1).toInt();
+                          int dataIndex = startIndex + spot.x.toInt();
+                          int secondsAgo = pressureHistory.length - 1 - dataIndex;
 
-                        return LineTooltipItem(
-                          '${spot.y.toStringAsFixed(1)} bar\n$timeText',
-                          const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        );
-                      }).toList();
-                    },
+                          String timeText;
+                          if (secondsAgo == 0) {
+                            timeText = 'Şimdi';
+                          } else if (secondsAgo < 60) {
+                            timeText = '$secondsAgo saniye önce';
+                          } else if (secondsAgo < 3600) {
+                            timeText = '${secondsAgo ~/ 60} dakika önce';
+                          } else {
+                            timeText = '${secondsAgo ~/ 3600} saat önce';
+                          }
+
+                          return LineTooltipItem(
+                            '${spot.y.toStringAsFixed(1)} bar\n$timeText',
+                            const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          );
+                        }).toList();
+                      },
+                    ),
                   ),
                 ),
               ),
             ),
           ),
+          // Kaydırma kılavuzu
+          if (pressureHistory.length > _visiblePoints)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.swipe_left, size: 14, color: Colors.white54),
+                  SizedBox(width: 4),
+                  Text(
+                    'Sağa kaydırarak geçmişe gidebilirsiniz',
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

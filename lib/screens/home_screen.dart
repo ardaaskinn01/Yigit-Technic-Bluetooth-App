@@ -44,9 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(child: _buildGearSelection(app)),
             const SizedBox(height: 8),
             K1K2SystemControl(
-              value: app.isK1K2Mode,
-              onChanged: (val) => app.setK1K2Mode(val),
-              app: app, // AppState'i parametre olarak veriyoruz
+              app: app, // ✅ Sadece bu yeterli
             ),
             const SizedBox(height: 12),
             _buildPumpControls(app),

@@ -2,14 +2,10 @@ import 'package:flutter/material.dart';
 import '../providers/app_state.dart';
 
 class K1K2SystemControl extends StatefulWidget {
-  final bool value;
-  final Function(bool) onChanged;
   final AppState app;
 
   const K1K2SystemControl({
     super.key,
-    required this.value,
-    required this.onChanged,
     required this.app,
   });
 
@@ -18,46 +14,12 @@ class K1K2SystemControl extends StatefulWidget {
 }
 
 class _K1K2SystemControlState extends State<K1K2SystemControl> {
-  late bool k1k2Active;
-
-  @override
-  void initState() {
-    super.initState();
-    k1k2Active = widget.value;
-  }
-
-  // ✅ GÜNCELLENDİ: Butonlar her zaman tıklanabilir
-  Widget _buildValveButton(String valve) {
-    final isActive = widget.app.valveStates[valve] ?? false;
-
-    return ElevatedButton(
-      onPressed: () => widget.app.toggleValve(valve), // ✅ Her zaman aktif
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isActive
-            ? Colors.lightBlueAccent.withOpacity(0.8)
-            : Colors.white.withOpacity(0.15), // ✅ Opacity sabit
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(
-            color: isActive ? Colors.lightBlueAccent : Colors.transparent,
-            width: 1.5,
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      ),
-      child: Text(
-        valve,
-        style: TextStyle(
-          color: Colors.white, // ✅ Her zaman beyaz
-          fontWeight: FontWeight.bold,
-          fontSize: 14,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final isK1K2Active = widget.app.isK1K2Mode;
+    final k1Active = widget.app.valveStates['N435'] ?? false;
+    final k2Active = widget.app.valveStates['N439'] ?? false;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -77,38 +39,67 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
           ),
           const SizedBox(height: 10),
 
-          // Switch
+          // Ana Switch - K1K2 Modu
           Switch(
-            value: k1k2Active,
+            value: isK1K2Active,
             activeColor: Colors.lightGreenAccent,
             inactiveTrackColor: Colors.white.withOpacity(0.3),
             inactiveThumbColor: Colors.grey[400],
             onChanged: (value) {
-              setState(() => k1k2Active = value);
-              widget.onChanged(value);
-              // Açılırken ve kapanırken 'k1k2' komutu gönderiliyor
-              widget.app.sendCommand('K1K2');
+              // AppState üzerinden merkezi olarak yönet
+              widget.app.setK1K2Mode(value);
             },
           ),
 
-          // K1 K2 Butonları
+          // K1 K2 Butonları - HER ZAMAN TIKLANABİLİR
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildValveButton('K1'), // ✅ Parametre kaldırıldı
-              _buildValveButton('K2'), // ✅ Parametre kaldırıldı
+              _buildValveButton('K1', k1Active),
+              _buildValveButton('K2', k2Active),
             ],
           ),
           const SizedBox(height: 4),
+
+          // Durum bilgisi
           Text(
-            k1k2Active ? "Debriyaj aktif edildi" : "Debriyaj deaktif",
+            isK1K2Active
+                ? "Debriyaj aktif"
+                : "Debriyaj deaktif",
             style: TextStyle(
               fontSize: 10,
-              color: k1k2Active ? Colors.lightGreenAccent : Colors.white38,
+              color: isK1K2Active ? Colors.lightGreenAccent : Colors.orangeAccent,
               fontStyle: FontStyle.italic,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildValveButton(String valve, bool isActive) {
+    return ElevatedButton(
+      onPressed: () => widget.app.toggleValve(valve), // ✅ HER ZAMAN TIKLANABİLİR
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isActive
+            ? Colors.lightBlueAccent.withOpacity(0.8)
+            : Colors.white.withOpacity(0.15),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: isActive ? Colors.lightBlueAccent : Colors.grey.withOpacity(0.5),
+            width: 1.5,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      ),
+      child: Text(
+        valve,
+        style: TextStyle(
+          color: isActive ? Colors.white : Colors.white70, // ✅ Her zaman görünür
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
       ),
     );
   }

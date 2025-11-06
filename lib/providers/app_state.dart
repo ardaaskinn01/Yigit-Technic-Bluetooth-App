@@ -130,13 +130,19 @@ class AppState extends ChangeNotifier {
 
   void startTestMode(int mode) {
     if (mode < 1 || mode > 8) return;
+
+    // ÖNCE K1K2 modunu aç
     setK1K2Mode(true);
+
     currentTestMode = mode;
     isTestModeActive = true;
 
     // Test modu komutunu gönder
     sendCommand(mode.toString());
-    _simulateTestMode();
+
+    if (mockMode) {
+      _simulateTestMode();
+    }
 
     // Test 7 ve 8 için özel mesajlar
     if (mode == 7) {
@@ -154,6 +160,8 @@ class AppState extends ChangeNotifier {
   }
 
   void stopTestMode(int mode) {
+    // ÖNCE K1K2 modunu kapat
+    setK1K2Mode(false);
     // Test 7 ve 8 için özel loglar
     if (currentTestMode == 7) {
       logs.add("✅ SÖKME Modu durduruldu - Sistem güvenli");
@@ -884,6 +892,17 @@ class AppState extends ChangeNotifier {
   void setK1K2Mode(bool value) {
     isK1K2Mode = value;
 
+    // Bluetooth komutunu gönder
+    sendCommand("K1K2");
+
+    // K1/K2 valflerini güncelle
+    if (!value) {
+      // K1K2 modu kapatıldığında K1 ve K2 valflerini kapat
+      valveStates['N435'] = false;
+      valveStates['N439'] = false;
+    }
+
+    logs.add('K1K2 Modu: ${value ? "Açıldı" : "Kapatıldı"}');
     notifyListeners();
   }
 
@@ -899,10 +918,15 @@ class AppState extends ChangeNotifier {
 
     final random = Random();
     int mechatronicScore = 0;
-    Timer? _testModeTimer;
 
     // 🔁 Ana simülasyon döngüsü
     Timer.periodic(const Duration(seconds: 2), (t) {
+      // Bluetooth modunda simülasyon yapma
+      if (!mockMode) {
+        t.cancel();
+        return;
+      }
+
       if (!isConnected) return;
 
       // Test modu aktifse özel işlemler yap
@@ -946,6 +970,9 @@ class AppState extends ChangeNotifier {
   }
 
   void _simulateTestMode() {
+    // Bluetooth modunda simülasyon yapma
+    if (!mockMode) return;
+
     if (!isTestModeActive || currentTestMode == 0) return;
 
     // Test moduna göre vites döngüsü hızı
@@ -954,7 +981,7 @@ class AppState extends ChangeNotifier {
     // Test modu timer'ını başlat (eğer başlatılmadıysa)
     _testModeTimer ??= Timer.periodic(
       Duration(milliseconds: (delaySeconds * 1000).round()),
-      (timer) {
+          (timer) {
         if (!isTestModeActive) {
           timer.cancel();
           _testModeTimer = null;
