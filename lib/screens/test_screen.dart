@@ -79,7 +79,6 @@ class _TestScreenState extends State<TestScreen> {
           content: Text(
             "Test Adı: ${test.testAdi}\n"
                 "Sonuç: ${test.sonuc} (${test.puan} / 100)\n"
-                "Durum: ${test.fazAdi}\n"
                 "\nRaporu görüntülemek ister misiniz?",
             style: TextStyle(color: MekatronikPuanlama.renk(test.puan)),
           ),
@@ -191,7 +190,6 @@ class _TestScreenState extends State<TestScreen> {
           content: Text(
             "Test 25 dakika içinde tamamlanmadı.\n\n"
                 "Test Adı: ${test.testAdi}\n"
-                "Son durum: ${test.fazAdi}\n\n"
                 "Yerel raporu görüntülemek ister misiniz?",
             style: TextStyle(color: Colors.white70),
           ),
@@ -477,6 +475,50 @@ class _TestScreenState extends State<TestScreen> {
                           fontSize: 16,
                         )),
                     SizedBox(height: 8),
+
+                    // Faz Bilgisi - Üst kısım
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey[900],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.format_list_numbered, color: Colors.yellow, size: 16),
+                              SizedBox(width: 4),
+                              Text(
+                                "FAZ ${app.currentFazNo + 1}",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 4),
+                          if (app.currentFazBilgisi != null) ...[
+                            Text(
+                              "Süre: ${app.currentFazBilgisi!['sure']}",
+                              style: TextStyle(color: Colors.white70, fontSize: 12),
+                            ),
+                            Text(
+                              "${app.currentFazBilgisi!['aciklama']}",
+                              style: TextStyle(color: Colors.white, fontSize: 12),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                    SizedBox(height: 12),
+
+                    // Diğer Bilgiler
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
@@ -497,7 +539,7 @@ class _TestScreenState extends State<TestScreen> {
                           children: [
                             Icon(Icons.timer_outlined, color: Colors.blueAccent),
                             Text("Süre", style: TextStyle(color: Colors.white70)),
-                            Text(_formatDuration(app.elapsedSeconds), // app.elapsedSeconds kullanıldı
+                            Text(_formatDuration(app.elapsedSeconds),
                                 style: TextStyle(
                                     color: Colors.blueAccent,
                                     fontWeight: FontWeight.bold,
@@ -506,18 +548,6 @@ class _TestScreenState extends State<TestScreen> {
                           ],
                         ),
 
-                        Column(
-                          children: [
-                            Icon(Icons.format_list_numbered_outlined, color: Colors.green),
-                            Text("Faz", style: TextStyle(color: Colors.white70)),
-                            Text(app.currentFaz.split(':')[0],
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16
-                                )),
-                          ],
-                        ),
                         Column(
                           children: [
                             Icon(

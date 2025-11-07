@@ -11,7 +11,20 @@ class LogScreen extends StatelessWidget {
     final app = Provider.of<AppState>(context);
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: LogConsole(lines: app.logs),
+      child: LogConsole(
+        lines: app.logs,
+        onSendCommand: (command) {
+          // Komutu gönder
+          app.sendCommand(command);
+
+          // İsteğe bağlı: Özel komut işlemleri
+          if (command.toLowerCase() == 'clear') {
+            app.clearLogs();
+          } else if (command.toLowerCase() == 'help') {
+            app.logs.add('[SİSTEM] Kullanılabilir komutlar: A, K, V1-V7, VR, TEST, TEST_STOP, PUAN, DUR, aq');
+          }
+        },
+      ),
     );
   }
 }

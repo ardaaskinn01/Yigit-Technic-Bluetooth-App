@@ -234,6 +234,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     double currentPressure = app.pressure;
+    int toplamTekrar = app.toplamTekrar; // YENİ: Toplam tekrar değeri
 
     Color pressureColor = currentPressure < 42.0 ? Colors.redAccent : Colors.greenAccent;
 
@@ -251,11 +252,11 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ÜST BİLGİ SATIRI
+          // ÜST BİLGİ SATIRI - GÜNCELLENDİ
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Sol: Min/Max istatistikleri ve başlık
+              // Sol: İstatistikler ve Toplam Tekrar
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -296,26 +297,26 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                         ],
                       ),
                       const SizedBox(width: 8),
-                      // Kaydırma durumu
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: _isScrolling ? Colors.blue.withOpacity(0.3) : Colors.white10,
-                          borderRadius: BorderRadius.circular(8),
+                      // YENİ: Toplam Tekrar
+                      if (toplamTekrar >= 0)
+                        Row(
+                          children: [
+                            const Text('Tekrar:', style: TextStyle(color: Colors.white60, fontSize: 11)),
+                            const SizedBox(width: 2),
+                            Text(
+                              toplamTekrar.toString(),
+                              style: const TextStyle(
+                                color: Colors.amber,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
-                        child: Text(
-                          _isScrolling ? '📜 Kayıtlı' : '⏱️ Canlı',
-                          style: TextStyle(
-                            color: _isScrolling ? Colors.blueAccent : Colors.white60,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 2),
-                  // Kaydırma bilgisi
+                  // Kaydırma bilgisi ve durumlar
                   Row(
                     children: [
                       if (_isScrolling)
@@ -327,24 +328,33 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
                             fontWeight: FontWeight.bold,
                           ),
                         )
-                      else if (pressureHistory.isNotEmpty && pressureHistory.any((p) => p < 42.0))
+                      else if (toplamTekrar > 0)
                         Text(
-                          '⚠️ Kritik: Basınç 42 bar altına düştü!',
-                          style: TextStyle(
-                            color: Colors.redAccent,
+                          '🔄 Toplam $toplamTekrar tekrar tamamlandı',
+                          style: const TextStyle(
+                            color: Colors.amber,
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
                           ),
                         )
-                      else
-                        Text(
-                          '📈 Basınç Monitörü (${_maxHistoryPoints ~/ 60}dakika)',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
+                      else if (pressureHistory.isNotEmpty && pressureHistory.any((p) => p < 42.0))
+                          Text(
+                            '⚠️ Kritik: Basınç 42 bar altına düştü!',
+                            style: TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        else
+                          Text(
+                            '📈 Basınç Monitörü (${_maxHistoryPoints ~/ 60} dakika)',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
-                        ),
                     ],
                   ),
                 ],
@@ -578,25 +588,6 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
               ),
             ),
           ),
-          // Kaydırma kılavuzu
-          if (pressureHistory.length > _visiblePoints)
-            Padding(
-              padding: const EdgeInsets.only(top: 8.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.swipe_left, size: 14, color: Colors.white54),
-                  SizedBox(width: 4),
-                  Text(
-                    'Sağa kaydırarak geçmişe gidebilirsiniz',
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );

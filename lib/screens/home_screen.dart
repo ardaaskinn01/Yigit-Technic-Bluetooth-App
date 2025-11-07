@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/test_verisi.dart';
+import '../models/testmode_verisi.dart';
 import '../providers/app_state.dart';
 import '../utils/mekatronik_puanlama.dart';
 import '../widgets/k1k2_system_control.dart';
 import '../widgets/log_console.dart';
 import '../widgets/pressure_monitor_widget.dart';
 import '../widgets/pressure_valve_controls.dart';
+import '../widgets/testmode_rapor_dialog.dart';
 import '../widgets/valve_status_panel.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -29,11 +31,31 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onInit?.call();
     });
+
+    // Callback'i burada değil, build metodunda ayarlayacağız
+  }
+
+  void _showTestModuRaporu(TestModuRaporu rapor) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => TestModuRaporuDialog(
+        rapor: rapor,
+        onKapat: () {
+          Navigator.of(context).pop();
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final app = Provider.of<AppState>(context);
+
+    // Callback'i burada ayarla
+    app.onTestModuRaporuAlindi = (rapor) {
+      _showTestModuRaporu(rapor);
+    };
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(8),
@@ -44,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(child: _buildGearSelection(app)),
             const SizedBox(height: 8),
             K1K2SystemControl(
-              app: app, // ✅ Sadece bu yeterli
+              app: app,
             ),
             const SizedBox(height: 12),
             _buildPumpControls(app),
@@ -68,20 +90,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // 🔹 Valf Temizleme Bölümü - YENİ EKLENDİ
-                  // State değişkeni ekleyin (class _HomeScreenState içinde)
-
-                  // Valf Temizleme Bölümü - GÜNCELLENDİ
+                  // 🔹 Valf Temizleme Bölümü
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: Colors.white10,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color:
-                            _temizlemeAktif
-                                ? Colors.redAccent.withOpacity(0.5)
-                                : Colors.greenAccent.withOpacity(0.3),
+                        color: _temizlemeAktif
+                            ? Colors.redAccent.withOpacity(0.5)
+                            : Colors.greenAccent.withOpacity(0.3),
                       ),
                     ),
                     child: Column(
@@ -94,20 +112,18 @@ class _HomeScreenState extends State<HomeScreen> {
                               _temizlemeAktif
                                   ? Icons.cleaning_services
                                   : Icons.cleaning_services_outlined,
-                              color:
-                                  _temizlemeAktif
-                                      ? Colors.redAccent
-                                      : Colors.greenAccent,
+                              color: _temizlemeAktif
+                                  ? Colors.redAccent
+                                  : Colors.greenAccent,
                               size: 18,
                             ),
                             const SizedBox(width: 6),
                             Text(
                               "VALF TEMİZLEME",
                               style: TextStyle(
-                                color:
-                                    _temizlemeAktif
-                                        ? Colors.redAccent
-                                        : Colors.greenAccent,
+                                color: _temizlemeAktif
+                                    ? Colors.redAccent
+                                    : Colors.greenAccent,
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -157,43 +173,37 @@ class _HomeScreenState extends State<HomeScreen> {
                               Text(
                                 "0.1s",
                                 style: TextStyle(
-                                  color:
-                                      _temizlemeDegeri == 0.1
-                                          ? Colors.greenAccent
-                                          : Colors.white54,
+                                  color: _temizlemeDegeri == 0.1
+                                      ? Colors.greenAccent
+                                      : Colors.white54,
                                   fontSize: 10,
-                                  fontWeight:
-                                      _temizlemeDegeri == 0.1
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
+                                  fontWeight: _temizlemeDegeri == 0.1
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
                                 ),
                               ),
                               Text(
                                 "0.5s",
                                 style: TextStyle(
-                                  color:
-                                      _temizlemeDegeri == 0.5
-                                          ? Colors.greenAccent
-                                          : Colors.white54,
+                                  color: _temizlemeDegeri == 0.5
+                                      ? Colors.greenAccent
+                                      : Colors.white54,
                                   fontSize: 10,
-                                  fontWeight:
-                                      _temizlemeDegeri == 0.5
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
+                                  fontWeight: _temizlemeDegeri == 0.5
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
                                 ),
                               ),
                               Text(
                                 "1.0s",
                                 style: TextStyle(
-                                  color:
-                                      _temizlemeDegeri == 1.0
-                                          ? Colors.greenAccent
-                                          : Colors.white54,
+                                  color: _temizlemeDegeri == 1.0
+                                      ? Colors.greenAccent
+                                      : Colors.white54,
                                   fontSize: 10,
-                                  fontWeight:
-                                      _temizlemeDegeri == 1.0
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
+                                  fontWeight: _temizlemeDegeri == 1.0
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
                                 ),
                               ),
                             ],
@@ -232,7 +242,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
 
                         // Başlat/Durdur Butonu
-                        // Başlat/Durdur Butonu - MERKEZDE
                         Center(
                           child: ElevatedButton.icon(
                             onPressed: () {
@@ -340,30 +349,27 @@ class _HomeScreenState extends State<HomeScreen> {
                         onPressed: () async {
                           final confirm = await showDialog<bool>(
                             context: context,
-                            builder:
-                                (_) => AlertDialog(
-                                  backgroundColor: const Color(0xFF003366),
-                                  title: const Text(
-                                    "Sökme Modu",
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  content: const Text(
-                                    "Bu işlem basıncı boşaltacaktır.\nEmin misiniz?",
-                                    style: TextStyle(color: Colors.white70),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed:
-                                          () => Navigator.pop(context, false),
-                                      child: const Text("İptal"),
-                                    ),
-                                    TextButton(
-                                      onPressed:
-                                          () => Navigator.pop(context, true),
-                                      child: const Text("Evet"),
-                                    ),
-                                  ],
+                            builder: (_) => AlertDialog(
+                              backgroundColor: const Color(0xFF003366),
+                              title: const Text(
+                                "Sökme Modu",
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              content: const Text(
+                                "Bu işlem basıncı boşaltacaktır.\nEmin misiniz?",
+                                style: TextStyle(color: Colors.white70),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, false),
+                                  child: const Text("İptal"),
                                 ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, true),
+                                  child: const Text("Evet"),
+                                ),
+                              ],
+                            ),
                           );
                           if (confirm == true) app.startSokmeModu();
                         },
@@ -398,29 +404,26 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Diğer metodlar aynı kalacak...
   Widget _buildConnectButton(AppState app) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         // Bağlantı durumu göstergesi
         Container(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color:
-                app.isConnected
-                    ? Colors.green.withOpacity(0.2)
-                    : app.isReconnecting
-                    ? Colors.orange.withOpacity(0.2)
-                    : Colors.red.withOpacity(0.2),
+            color: app.isConnected
+                ? Colors.green.withOpacity(0.2)
+                : app.isReconnecting
+                ? Colors.orange.withOpacity(0.2)
+                : Colors.red.withOpacity(0.2),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color:
-                  app.isConnected
-                      ? Colors.green
-                      : app.isReconnecting
-                      ? Colors.orange
-                      : Colors.red,
+              color: app.isConnected
+                  ? Colors.green
+                  : app.isReconnecting
+                  ? Colors.orange
+                  : Colors.red,
             ),
           ),
           child: Row(
@@ -432,15 +435,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     : app.isReconnecting
                     ? Icons.bluetooth_searching
                     : Icons.bluetooth_disabled,
-                color:
-                    app.isConnected
-                        ? Colors.green
-                        : app.isReconnecting
-                        ? Colors.orange
-                        : Colors.red,
+                color: app.isConnected
+                    ? Colors.green
+                    : app.isReconnecting
+                    ? Colors.orange
+                    : Colors.red,
                 size: 16,
               ),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
               Text(
                 app.isConnected
                     ? "BAĞLI"
@@ -448,12 +450,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? "YENİDEN BAĞLANIYOR..."
                     : "BAĞLANTI KOPUK",
                 style: TextStyle(
-                  color:
-                      app.isConnected
-                          ? Colors.green
-                          : app.isReconnecting
-                          ? Colors.orange
-                          : Colors.red,
+                  color: app.isConnected
+                      ? Colors.green
+                      : app.isReconnecting
+                      ? Colors.orange
+                      : Colors.red,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -461,7 +462,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        SizedBox(height: 12),
+        const SizedBox(height: 12),
 
         if (app.isConnected) ...[
           const Icon(
@@ -530,13 +531,13 @@ class _HomeScreenState extends State<HomeScreen> {
               'Pompa Aç',
               Icons.play_arrow,
               Colors.greenAccent,
-              () => app.sendCommand("A"),
+                  () => app.sendCommand("A"),
             ),
             _buildControlButton(
               'Pompa Kapat',
               Icons.stop,
               Colors.redAccent,
-              () => app.sendCommand("K"),
+                  () => app.sendCommand("K"),
             ),
           ],
         ),
@@ -573,11 +574,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildControlButton(
-    String text,
-    IconData icon,
-    Color color,
-    VoidCallback onPressed,
-  ) {
+      String text,
+      IconData icon,
+      Color color,
+      VoidCallback onPressed,
+      ) {
     return ElevatedButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, color: Colors.white),
@@ -614,24 +615,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 device.address,
                 style: const TextStyle(color: Colors.white54),
               ),
-              trailing:
-                  isConnecting
-                      ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                      : IconButton(
-                        icon: const Icon(
-                          Icons.link,
-                          color: Colors.lightBlueAccent,
-                        ),
-                        onPressed:
-                            () async => await app.tryConnect(
-                              device.address,
-                              device.name ?? "Cihaz",
-                            ),
-                      ),
+              trailing: isConnecting
+                  ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+                  : IconButton(
+                icon: const Icon(
+                  Icons.link,
+                  color: Colors.lightBlueAccent,
+                ),
+                onPressed: () async => await app.tryConnect(
+                  device.address,
+                  device.name ?? "Cihaz",
+                ),
+              ),
             ),
           );
         },
@@ -658,7 +657,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: () => app.sendCommand('V${gear == 'BOŞ' ? '0' : gear}'),
           style: ElevatedButton.styleFrom(
             backgroundColor:
-                isSelected ? Colors.blueAccent : Colors.white.withOpacity(0.15),
+            isSelected ? Colors.blueAccent : Colors.white.withOpacity(0.15),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
               side: BorderSide(
