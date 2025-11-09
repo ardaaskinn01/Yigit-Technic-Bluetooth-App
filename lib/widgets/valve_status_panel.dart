@@ -51,10 +51,12 @@ class ValveStatusPanel extends StatelessWidget {
   }
 
   Widget _valveItem(String name, String func, bool isActive) {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150), // Daha kısa animasyon
+      curve: Curves.easeInOut,
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: isActive ? Colors.green.withOpacity(0.1) : Colors.white10,
+        color: isActive ? Colors.green.withOpacity(0.15) : Colors.white10,
         border: Border(
           left: BorderSide(
             color: isActive ? Colors.greenAccent : Colors.white24,
@@ -62,23 +64,16 @@ class ValveStatusPanel extends StatelessWidget {
           ),
         ),
         borderRadius: BorderRadius.circular(6),
-        boxShadow: isActive
-            ? [BoxShadow(color: Colors.green.withOpacity(0.5), blurRadius: 10)]
-            : [],
       ),
       child: Row(
         children: [
-          // 🔵 Durum Noktası
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
+          // Durum göstergesi - daha stabil
+          Container(
             width: 10,
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isActive ? Colors.greenAccent : Colors.grey,
-              boxShadow: isActive
-                  ? [BoxShadow(color: Colors.greenAccent, blurRadius: 8)]
-                  : [],
             ),
           ),
           const SizedBox(width: 8),

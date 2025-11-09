@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import '../models/testmode_verisi.dart';
 
-class TestModuRaporuDialog extends StatelessWidget {
+class TestModuRaporuDialog extends StatefulWidget {
   final TestModuRaporu rapor;
   final VoidCallback onKapat;
 
@@ -13,7 +13,15 @@ class TestModuRaporuDialog extends StatelessWidget {
   });
 
   @override
+  State<TestModuRaporuDialog> createState() => _TestModuRaporuDialogState();
+}
+
+class _TestModuRaporuDialogState extends State<TestModuRaporuDialog> {
+  bool _kapatildi = false;
+
+  @override
   Widget build(BuildContext context) {
+
     return Dialog(
       backgroundColor: Colors.blueGrey[900],
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -27,7 +35,7 @@ class TestModuRaporuDialog extends StatelessWidget {
               // BAŞLIK
               Center(
                 child: Text(
-                  "TEST MODU ${rapor.testModu} RAPORU",
+                  "TEST MODU ${widget.rapor.testModu} RAPORU",
                   style: const TextStyle(
                     color: Colors.amber,
                     fontSize: 18,
@@ -38,44 +46,49 @@ class TestModuRaporuDialog extends StatelessWidget {
               const SizedBox(height: 16),
 
               // TARİH VE MOD BİLGİSİ
-              _buildInfoRow("Test Modu", "T${rapor.testModu}"),
-              _buildInfoRow("Tarih", rapor.formattedDate),
+              _buildInfoRow("Test Modu", "T${widget.rapor.testModu}"),
+              _buildInfoRow("Tarih", widget.rapor.formattedDate),
               const Divider(color: Colors.grey),
 
               // BASINÇ BİLGİLERİ
               const Text("BASINÇ BİLGİLERİ",
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              _buildInfoRow("Minimum Basınç", "${rapor.minBasinc.toStringAsFixed(1)} bar"),
-              _buildInfoRow("Maksimum Basınç", "${rapor.maxBasinc.toStringAsFixed(1)} bar"),
-              _buildInfoRow("Ortalama Basınç", "${rapor.ortalamaBasinc.toStringAsFixed(1)} bar"),
+              _buildInfoRow("Minimum Basınç", "${widget.rapor.minBasinc.toStringAsFixed(1)} bar"),
+              _buildInfoRow("Maksimum Basınç", "${widget.rapor.maxBasinc.toStringAsFixed(1)} bar"),
+              _buildInfoRow("Ortalama Basınç", "${widget.rapor.ortalamaBasinc.toStringAsFixed(1)} bar"),
               const SizedBox(height: 8),
 
               // POMPA BİLGİLERİ
               const Text("POMPA BİLGİLERİ",
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              _buildInfoRow("Toplam Çalışma Süresi", rapor.pompaSureFormatted),
-              _buildInfoRow("Düşük Basınç Sayısı", rapor.dusukBasincSayisi.toString()),
-              _buildInfoRow("Düşük Basınç Süresi", rapor.dusukBasincSureFormatted),
+              _buildInfoRow("Toplam Çalışma Süresi", widget.rapor.pompaSureFormatted),
+              _buildInfoRow("Düşük Basınç Sayısı", widget.rapor.dusukBasincSayisi.toString()),
+              _buildInfoRow("Düşük Basınç Süresi", widget.rapor.dusukBasincSureFormatted),
               const SizedBox(height: 8),
 
               // VİTES BİLGİLERİ
               const Text("VİTES GEÇİŞLERİ",
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              _buildInfoRow("Toplam Geçiş Sayısı", rapor.toplamVitesGecisSayisi.toString()),
+              _buildInfoRow("Toplam Geçiş Sayısı", widget.rapor.toplamVitesGecisSayisi.toString()),
               const SizedBox(height: 8),
 
               // VİTES GEÇİŞ DETAYLARI
-              _buildVitesGecisleri(rapor.vitesGecisleri),
+              _buildVitesGecisleri(widget.rapor.vitesGecisleri),
 
               const SizedBox(height: 20),
 
               // KAPATMA BUTONU
               Center(
                 child: ElevatedButton(
-                  onPressed: onKapat,
+                  onPressed: () {
+                    if (!_kapatildi) {
+                      _kapatildi = true;
+                      widget.onKapat();
+                    }
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blueAccent,
                     foregroundColor: Colors.white,

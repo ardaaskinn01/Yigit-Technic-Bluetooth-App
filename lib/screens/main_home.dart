@@ -23,6 +23,13 @@ class _MainHomeScreenState extends State<MainHomeScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+
+    // ✅ Tab değişiminde rebuild'ı optimize et
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -128,13 +135,25 @@ class _MainHomeScreenState extends State<MainHomeScreen>
                 ),
               ),
               child: TabBarView(
-                controller: _tabController,
-                children: [
-                  HomeScreen(onInit: () => app.initConnection()),
-                  const TestScreen(),
-                  const LogScreen(),
-                ],
-              ),
+              controller: _tabController,
+              physics: const NeverScrollableScrollPhysics(), // ✅ Manuel scroll'u kapat
+              children: [
+                if (_tabController.index == 0)
+                  HomeScreen(onInit: () => app.initConnection())
+                else
+                  const SizedBox(),
+
+                if (_tabController.index == 1)
+                  const TestScreen()
+                else
+                  const SizedBox(),
+
+                if (_tabController.index == 2)
+                  const LogScreen()
+                else
+                  const SizedBox(),
+              ],
+            ),
             ),
           ),
         ],

@@ -12,7 +12,7 @@ void main() async {
   // ✅ Önce izinleri kontrol et
   await checkBluetoothPermissions();
 
-  final appState = AppState(mockMode: false);
+  final appState = AppState(mockMode: true);
 
   runApp(
     MultiProvider(

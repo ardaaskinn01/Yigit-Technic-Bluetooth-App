@@ -16,6 +16,7 @@ class _TestScreenState extends State<TestScreen> {
   final TextEditingController _nameController = TextEditingController();
   late AppState _app;
   bool _isDialogShowing = false;
+  TestVerisi? _lastCompletedTest; // ✅ YENİ: Son tamamlanan testi sakla
 
   @override
   void initState() {
@@ -54,33 +55,78 @@ class _TestScreenState extends State<TestScreen> {
     print('  - Sonuç: ${test.sonuc}');
     print('  - _isDialogShowing: $_isDialogShowing');
 
-    if (!_isDialogShowing) {
+    // ✅ YENİ: Son testi sakla
+    _lastCompletedTest = test;
+
+    // Dialog zaten gösteriliyorsa tekrar gösterme
+    if (_isDialogShowing) {
+      print('[DEBUG] Dialog already showing, skipping');
+      return;
+    }
+
+    _isDialogShowing = true;
+
+    print('[DEBUG] Showing completion dialog for: ${test.testAdi}');
+
+    // Hangi dialogu göstereceğimize karar ver
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showDeviceResultDialog(test);
+    });
+  }
+
+  // ✅ YENİ: Manuel olarak son testi göster
+  void _showLastTestResult() {
+    if (_lastCompletedTest != null && !_isDialogShowing) {
       _isDialogShowing = true;
-
-      print('[DEBUG] Showing completion dialog for: ${test.testAdi}');
-
-      if (_app.mockMode) {
-        _showMockResultDialog(test);
-      } else {
-        _showDeviceResultDialog(test);
-      }
+      _showDeviceResultDialog(_lastCompletedTest!);
+    } else if (_lastCompletedTest == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Henüz tamamlanmış bir test bulunmuyor"),
+          backgroundColor: Colors.orange,
+        ),
+      );
     }
   }
 
-  void _showMockResultDialog(TestVerisi test) {
+  String _formatDuration(int totalSeconds) {
+    final duration = Duration(seconds: totalSeconds);
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return "$minutes:$seconds";
+  }
+
+  void _showDeviceResultDialog(TestVerisi test) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF003366),
-          title: const Text("Test Tamamlandı!",
-              style: TextStyle(color: Colors.white, fontSize: 16)),
-          content: Text(
-            "Test Adı: ${test.testAdi}\n"
-                "Sonuç: ${test.sonuc} (${test.puan} / 100)\n"
-                "\nRaporu görüntülemek ister misiniz?",
-            style: TextStyle(color: MekatronikPuanlama.renk(test.puan)),
+          title: Text("Test Tamamlandı - ${test.sonuc}",
+              style: TextStyle(
+                  color: MekatronikPuanlama.renk(test.puan),
+                  fontSize: 16
+              )),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Test Adı: ${test.testAdi}",
+                  style: TextStyle(color: Colors.white)),
+              SizedBox(height: 10),
+              Text("Puan: ${test.puan}/100",
+                  style: TextStyle(
+                      color: MekatronikPuanlama.renk(test.puan),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18
+                  )),
+              SizedBox(height: 10),
+              Text("Durum: ${test.sonuc}",
+                  style: TextStyle(color: Colors.white70)),
+              SizedBox(height: 10),
+              Text("Detaylı raporu görüntülemek ister misiniz?",
+                  style: TextStyle(color: Colors.white70)),
+            ],
           ),
           actions: <Widget>[
             TextButton(
@@ -110,205 +156,37 @@ class _TestScreenState extends State<TestScreen> {
       },
     ).then((_) {
       _isDialogShowing = false;
-      print('[DEBUG] Mock dialog closed');
+      print('[DEBUG] Device dialog closed');
     });
   }
 
-  String _formatDuration(int totalSeconds) {
-    final duration = Duration(seconds: totalSeconds);
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return "$minutes:$seconds";
+  String _getActiveValvesCount(Map<String, bool> valveStates) {
+    int activeCount = valveStates.values.where((state) => state).length;
+    return '$activeCount/8';
   }
 
-  void _showDeviceResultDialog(TestVerisi test) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF003366),
-          title: const Text("Test Tamamlandı!",
-              style: TextStyle(color: Colors.white, fontSize: 16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text("Test Adı: ${test.testAdi}",
-                  style: TextStyle(color: Colors.white)),
-              SizedBox(height: 10),
-              Text("Cihaz puanı alınıyor...",
-                  style: TextStyle(color: Colors.amber)),
-              SizedBox(height: 10),
-              CircularProgressIndicator(),
-              SizedBox(height: 10),
-              Text("25 dakika timeout aktif",
-                  style: TextStyle(color: Colors.white70, fontSize: 12)),
-            ],
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text("İPTAL",
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _isDialogShowing = false;
-                // Testi manuel durdur
-                _app.sendCommand("TEST_STOP");
-              },
-            ),
-          ],
-        );
-      },
-    );
-
-    // Cihaz puanı için listener - 25 dakika timeout
-    _app.onDeviceReportReceived = (String report) {
-      if (_isDialogShowing && (report.contains("PUAN:") || _parseScoreFromReport(report) != null)) {
-        Navigator.of(context).pop();
-        _showDeviceReportDialog(test, report);
-      }
-    };
-
-    // 25 dakika timeout
-    Future.delayed(Duration(minutes: 25), () {
-      if (_isDialogShowing) {
-        Navigator.of(context).pop();
-        _showTimeoutDialog(test);
-      }
+// Aktif valflerin listesini al
+  String _getActiveValvesText(Map<String, bool> valveStates) {
+    List<String> activeValves = [];
+    valveStates.forEach((key, value) {
+      if (value) activeValves.add(key);
     });
-  }
-
-  void _showTimeoutDialog(TestVerisi test) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF003366),
-          title: const Text("Timeout!",
-              style: TextStyle(color: Colors.red, fontSize: 16)),
-          content: Text(
-            "Test 25 dakika içinde tamamlanmadı.\n\n"
-                "Test Adı: ${test.testAdi}\n"
-                "Yerel raporu görüntülemek ister misiniz?",
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text("KAPAT",
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _isDialogShowing = false;
-              },
-            ),
-            TextButton(
-              child: const Text("RAPORU GÖRÜNTÜLE",
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _isDialogShowing = false;
-                _showMockResultDialog(test);
-              },
-            ),
-          ],
-        );
-      },
-    ).then((_) {
-      _isDialogShowing = false;
-    });
-  }
-
-  void _showDeviceReportDialog(TestVerisi test, String report) {
-    // Puan ve durumu parse et
-    final puan = _parseScoreFromReport(report) ?? test.puan;
-    final durum = _parseDurumFromReport(report) ?? test.sonuc;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF003366),
-          title: Text("Test Tamamlandı - $durum",
-              style: TextStyle(
-                  color: MekatronikPuanlama.renk(puan),
-                  fontSize: 16
-              )),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Test Adı: ${test.testAdi}",
-                    style: TextStyle(color: Colors.white)),
-                SizedBox(height: 8),
-                Text("Puan: $puan/100",
-                    style: TextStyle(
-                        color: MekatronikPuanlama.renk(puan),
-                        fontWeight: FontWeight.bold
-                    )),
-                SizedBox(height: 8),
-                Text("Durum: $durum",
-                    style: TextStyle(color: Colors.white70)),
-                SizedBox(height: 12),
-                Text("Detaylı raporu görüntülemek ister misiniz?",
-                    style: TextStyle(color: Colors.white70)),
-              ],
-            ),
-          ),
-          // ... actions aynı kalabilir
-        );
-      },
-    );
-  }
-
-  String? _parseDurumFromReport(String report) {
-    if (report.contains("DURUM: MÜKEMMEL")) return "MÜKEMMEL";
-    if (report.contains("DURUM: İYİ")) return "İYİ";
-    if (report.contains("DURUM: ORTA")) return "ORTA";
-    if (report.contains("DURUM: SORUNLU")) return "SORUNLU";
-    if (report.contains("DURUM: KÖTÜ")) return "KÖTÜ";
-    return null;
-  }
-
-  int? _parseScoreFromReport(String report) {
-    try {
-      // İki farklı puan formatını kontrol et
-      final mekatronikMatch = RegExp(r'TOPLAM PUAN:\s*(\d+)/100').firstMatch(report);
-      if (mekatronikMatch != null) {
-        return int.parse(mekatronikMatch.group(1)!);
-      }
-
-      final genelMatch = RegExp(r'GENEL PUAN:\s*([\d.]+)/100').firstMatch(report);
-      if (genelMatch != null) {
-        return double.parse(genelMatch.group(1)!).round();
-      }
-
-      final puanMatch = RegExp(r'PUAN:\s*(\d+)/100').firstMatch(report);
-      if (puanMatch != null) {
-        return int.parse(puanMatch.group(1)!);
-      }
-    } catch (e) {
-      print('Puan parse error: $e');
-    }
-    return null;
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _app.onTestCompleted = null;
-    super.dispose();
+    return activeValves.isNotEmpty ? activeValves.join(', ') : 'Tüm valfler kapalı';
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, app, _) {
-        final isRunning = app.isTesting;
-        final isPaused = app.isPaused;
+        // ✅ DÜZELTİLDİ: Tüm aktif test durumlarını kontrol et
+        final isRunning = app.isTesting ||
+            app.currentTestState == TestState.starting ||
+            app.currentTestState == TestState.running ||
+            app.currentTestState == TestState.paused ||
+            app.currentTestState == TestState.waitingReport ||
+            app.currentTestState == TestState.parsingReport;
 
+        final isPaused = app.isPaused;
         return Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -331,6 +209,23 @@ class _TestScreenState extends State<TestScreen> {
                 ),
               ),
               const SizedBox(height: 20),
+
+              // ✅ YENİ: Son Test Sonucu Butonu
+              if (_lastCompletedTest != null && !isRunning)
+                ElevatedButton.icon(
+                  onPressed: _showLastTestResult,
+                  icon: const Icon(Icons.assignment, color: Colors.white),
+                  label: const Text("SON TEST SONUCUNU GÖSTER",
+                      style: TextStyle(color: Colors.white, fontSize: 14)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+
+              if (_lastCompletedTest != null && !isRunning)
+                const SizedBox(height: 10),
+
               // Ana Kontrol Butonları
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -456,11 +351,8 @@ class _TestScreenState extends State<TestScreen> {
                 const SizedBox(height: 16),
               ],
 
-              const SizedBox(height: 16),
-
-              // Test bilgileri
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: Colors.blueGrey[800],
                   borderRadius: BorderRadius.circular(10),
@@ -476,44 +368,104 @@ class _TestScreenState extends State<TestScreen> {
                         )),
                     SizedBox(height: 8),
 
-                    // Faz Bilgisi - Üst kısım
-                    Container(
-                      padding: EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey[900],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.format_list_numbered, color: Colors.yellow, size: 16),
-                              SizedBox(width: 4),
-                              Text(
-                                "FAZ ${app.currentFazNo + 1}",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+                    // ✅ YENİ: İki container'ı yan yana yerleştir
+                    Row(
+                      children: [
+                        // SOL: FAZ Bilgisi Container'ı
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey[900],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.format_list_numbered, color: Colors.yellow, size: 16),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      "FAZ ${app.currentFazNo + 1}",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
+                                SizedBox(height: 4),
+                                if (app.currentFazBilgisi != null) ...[
+                                  Text(
+                                    "Süre: ${app.currentFazBilgisi!['sure']}",
+                                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                                  ),
+                                  Text(
+                                    "${app.currentFazBilgisi!['aciklama']}",
+                                    style: TextStyle(color: Colors.white, fontSize: 12),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
-                          SizedBox(height: 4),
-                          if (app.currentFazBilgisi != null) ...[
-                            Text(
-                              "Süre: ${app.currentFazBilgisi!['sure']}",
-                              style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+
+                        SizedBox(width: 8), // Ara boşluk
+
+                        // SAĞ: Vites ve Valf Container'ı
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey[900],
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            Text(
-                              "${app.currentFazBilgisi!['aciklama']}",
-                              style: TextStyle(color: Colors.white, fontSize: 12),
-                              textAlign: TextAlign.center,
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                  children: [
+                                    Column(
+                                      children: [
+                                        Icon(Icons.speed, color: Colors.orange),
+                                        Text("Vites", style: TextStyle(color: Colors.white70)),
+                                        Text(app.currentVites,
+                                            style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 18
+                                            )),
+                                      ],
+                                    ),
+                                    Column(
+                                      children: [
+                                        Icon(Icons.engineering, color: Colors.green),
+                                        Text("Valfler", style: TextStyle(color: Colors.white70)),
+                                        Text(_getActiveValvesCount(app.valveStates),
+                                            style: TextStyle(
+                                                color: Colors.green,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16
+                                            )),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: 8),
+                                // Aktif valfleri göster
+                                Text(
+                                  _getActiveValvesText(app.valveStates),
+                                  style: TextStyle(color: Colors.white70, fontSize: 10),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
                             ),
-                          ],
-                        ],
-                      ),
+                          ),
+                        ),
+                      ],
                     ),
 
                     SizedBox(height: 12),
@@ -522,19 +474,6 @@ class _TestScreenState extends State<TestScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        Column(
-                          children: [
-                            Icon(Icons.speed, color: Colors.orange),
-                            Text("Vites", style: TextStyle(color: Colors.white70)),
-                            Text(app.currentVites,
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18
-                                )),
-                          ],
-                        ),
-
                         Column(
                           children: [
                             Icon(Icons.timer_outlined, color: Colors.blueAccent),

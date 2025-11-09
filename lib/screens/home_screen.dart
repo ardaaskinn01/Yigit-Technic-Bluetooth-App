@@ -21,42 +21,58 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool showLog = false;
-  double _temizlemeDegeri = 0.1; // Varsayılan değer: 0.1 saniye
+  double _temizlemeDegeri = 0.1;
   final List<double> _temizlemeSecenekleri = [0.1, 0.5, 1.0];
   bool _temizlemeAktif = false;
+  bool _callbackRegistered = false;
+  bool _dialogGosteriliyor = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onInit?.call();
+      _registerCallback();
     });
+  }
 
-    // Callback'i burada değil, build metodunda ayarlayacağız
+  void _registerCallback() {
+    if (!_callbackRegistered) {
+      final app = Provider.of<AppState>(context, listen: false);
+      app.onTestModuRaporuAlindi = (rapor) {
+        _showTestModuRaporu(rapor);
+      };
+      _callbackRegistered = true;
+    }
   }
 
   void _showTestModuRaporu(TestModuRaporu rapor) {
+    // ✅ YENİ: Dialog zaten gösteriliyorsa tekrar gösterme
+    if (_dialogGosteriliyor) {
+      return;
+    }
+
+    _dialogGosteriliyor = true;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => TestModuRaporuDialog(
         rapor: rapor,
         onKapat: () {
+          _dialogGosteriliyor = false;
           Navigator.of(context).pop();
         },
       ),
-    );
+    ).then((value) {
+      // Dialog kapatıldığında durumu sıfırla
+      _dialogGosteriliyor = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final app = Provider.of<AppState>(context);
-
-    // Callback'i burada ayarla
-    app.onTestModuRaporuAlindi = (rapor) {
-      _showTestModuRaporu(rapor);
-    };
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(8),
       child: Column(
@@ -719,8 +735,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: const TextStyle(color: Colors.amber, fontSize: 12),
                     textAlign: TextAlign.center,
                   ),
+                  // ✅ VİTES BİLGİSİ EKLENDİ
                   Text(
-                    "Vites: ${app.gear} | Pompa: ${app.pumpOn ? 'AÇIK' : 'KAPALI'}",
+                    "Vites: ${app.gear} | Valf: ${app.currentVites} | Pompa: ${app.pumpOn ? 'AÇIK' : 'KAPALI'}",
                     style: const TextStyle(color: Colors.amber, fontSize: 11),
                   ),
                 ],

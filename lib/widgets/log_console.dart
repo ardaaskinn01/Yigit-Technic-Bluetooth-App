@@ -158,28 +158,17 @@ class _LogConsoleState extends State<LogConsole> {
                 child: ListView.builder(
                   controller: _scrollController,
                   itemCount: widget.lines.length,
+                  itemExtent: 16.0, // ✅ Sabit yükseklik - PERFORMANS ARTIŞI
+                  addAutomaticKeepAlives: false, // ✅ Gereksiz keep-alive'ı kapat
+                  addRepaintBoundaries: false, // ✅ Repaint boundary'leri kapat
+                  physics: const BouncingScrollPhysics(), // ✅ Daha hafif fizik
                   itemBuilder: (ctx, i) {
                     final line = widget.lines[i];
-                    Color textColor = Colors.white70;
-                    // Komut satırlarını farklı renkte göster
-                    if (line.contains('->')) {
-                      textColor = Colors.blueAccent;
-                    } else if (line.contains('HATA') || line.contains('ERROR')) {
-                      textColor = Colors.redAccent;
-                    } else if (line.contains('BAŞARILI') || line.contains('SUCCESS')) {
-                      textColor = Colors.greenAccent;
-                    } else if (line.contains('UYARI') || line.contains('WARN')) {
-                      textColor = Colors.orangeAccent;
-                    }
-
                     return Text(
                       line,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        color: textColor,
-                        height: 1.2,
-                      ),
+                      style: _getTextStyleForLine(line), // ✅ Stil hesaplamasını metoda taşı
+                      maxLines: 1, // ✅ Tek satır
+                      overflow: TextOverflow.ellipsis, // ✅ Taşma kontrolü
                     );
                   },
                 ),
@@ -222,6 +211,27 @@ class _LogConsoleState extends State<LogConsole> {
           ),
         ],
       ),
+    );
+  }
+
+  TextStyle _getTextStyleForLine(String line) {
+    Color textColor = Colors.white70;
+
+    if (line.contains('->')) {
+      textColor = Colors.blueAccent;
+    } else if (line.contains('HATA') || line.contains('ERROR')) {
+      textColor = Colors.redAccent;
+    } else if (line.contains('BAŞARILI') || line.contains('SUCCESS')) {
+      textColor = Colors.greenAccent;
+    } else if (line.contains('UYARI') || line.contains('WARN')) {
+      textColor = Colors.orangeAccent;
+    }
+
+    return TextStyle(
+      fontFamily: 'monospace',
+      fontSize: 11,
+      color: textColor,
+      height: 1.2,
     );
   }
 
