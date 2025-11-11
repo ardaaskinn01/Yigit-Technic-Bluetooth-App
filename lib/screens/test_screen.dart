@@ -24,7 +24,28 @@ class _TestScreenState extends State<TestScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _app = Provider.of<AppState>(context, listen: false);
       _app.onTestCompleted = _onTestCompleted;
+
+      // ✅ DEBUG: Callback'in atandığını kontrol et
+      print('[DEBUG] onTestCompleted callback atandı: ${_app.onTestCompleted != null}');
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final app = Provider.of<AppState>(context);
+
+    // Test state'i değiştiğinde kontrol et
+    if (app.currentTestState == TestState.completed &&
+        app.completedTests.isNotEmpty &&
+        !_isDialogShowing) {
+
+      // Son testi al ve dialog göster
+      final lastTest = app.completedTests.first;
+      if (lastTest.tarih.isAfter(DateTime.now().subtract(Duration(minutes: 1)))) {
+        _onTestCompleted(lastTest);
+      }
+    }
   }
 
   String _getPhaseName(TestPhase phase) {
@@ -178,6 +199,16 @@ class _TestScreenState extends State<TestScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, app, _) {
+        if (app.completedTests.isNotEmpty && _lastCompletedTest == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final lastTest = app.completedTests.first;
+            if (lastTest.tarih.isAfter(DateTime.now().subtract(Duration(minutes: 1)))) {
+              _onTestCompleted(lastTest);
+            }
+          });
+        }
+        final currentPhase = app.currentPhase;
+        final phaseName = _getPhaseName(currentPhase);
         // ✅ DÜZELTİLDİ: Tüm aktif test durumlarını kontrol et
         final isRunning = app.isTesting ||
             app.currentTestState == TestState.starting ||
@@ -381,22 +412,16 @@ class _TestScreenState extends State<TestScreen> {
                             ),
                             child: Column(
                               children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.format_list_numbered, color: Colors.yellow, size: 16),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      "FAZ ${app.currentFazNo + 1}",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
+                                Text(
+                                  _getPhaseName(app.currentPhase), // Bu satırı ekleyin
+                                  style: TextStyle(
+                                    color: Colors.yellow,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                  textAlign: TextAlign.center,
                                 ),
-                                SizedBox(height: 4),
+                                SizedBox(height: 4), // Biraz boşluk ekleyin
                                 if (app.currentFazBilgisi != null) ...[
                                   Text(
                                     "Süre: ${app.currentFazBilgisi!['sure']}",

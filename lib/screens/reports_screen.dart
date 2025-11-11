@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../models/test_verisi.dart';
 import '../providers/app_state.dart';
 import 'rapor_detay_ekrani.dart';
 import 'package:intl/intl.dart';
@@ -249,46 +249,45 @@ class RaporlarEkrani extends StatelessWidget {
     );
   }
 
-  void _deleteSingleTest(BuildContext context, AppState app, dynamic test) {
-    // Testi listeden kaldır
-    app.completedTests.remove(test);
+  void _deleteSingleTest(BuildContext context, AppState app, TestVerisi test) async {
+    try {
+      await app.deleteTest(test);
 
-    // SharedPreferences'ı güncelle
-    _updateSharedPreferences(app);
-
-    // Snackbar göster
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('"${test.testAdi}" raporu silindi'),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${test.testAdi}" raporu silindi'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Silme hatası: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
-  void _deleteAllTests(BuildContext context, AppState app) {
-    // Tüm testleri temizle
-    app.completedTests.clear();
+  void _deleteAllTests(BuildContext context, AppState app) async {
+    try {
+      await app.clearTests();
 
-    // SharedPreferences'ı güncelle
-    _updateSharedPreferences(app);
-
-    // Snackbar göster
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Tüm raporlar silindi'),
-        backgroundColor: Colors.red,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _updateSharedPreferences(AppState app) async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = app.completedTests.map((t) => t.toJson()).toList();
-    await prefs.setStringList('saved_tests', encoded.cast<String>());
-
-    // AppState'i güncelle
-    app.notifyListeners();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tüm raporlar silindi'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Silme hatası: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }

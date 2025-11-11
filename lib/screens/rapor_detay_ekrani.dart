@@ -29,7 +29,7 @@ class RaporDetayEkrani extends StatelessWidget {
                 // BAŞLIK
                 pw.Center(
                   child: pw.Text(
-                    "DQ200 MEKATRONİK TEST RAPORU",
+                    "DQ200 MEKATRONIK TEST RAPORU",
                     style: pw.TextStyle(
                       fontSize: 20,
                       fontWeight: pw.FontWeight.bold,
@@ -41,19 +41,19 @@ class RaporDetayEkrani extends StatelessWidget {
                 pw.Divider(),
 
                 // GENEL BİLGİLER
-                pw.Text("GENEL BİLGİLER",
+                pw.Text("GENEL BILGILER",
                     style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
                 pw.SizedBox(height: 10),
                 pw.Table(
                   border: pw.TableBorder.all(color: PdfColors.grey400),
                   children: [
-                    _buildPdfRow("Test Adı", test.testAdi),
+                    _buildPdfRow("Test Adi", test.testAdi),
                     _buildPdfRow("Tarih", dateFormatted),
                     _buildPdfRow("Genel Puan", "${test.puan}/100"),
                     _buildPdfRow("Durum", test.sonuc),
-                    _buildPdfRow("Minimum Basınç", "${test.minBasinc.toStringAsFixed(1)} bar"),
-                    _buildPdfRow("Maksimum Basınç", "${test.maxBasinc.toStringAsFixed(1)} bar"),
-                    _buildPdfRow("Toplam Pompa Süresi", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
+                    _buildPdfRow("Minimum Basinc", "${test.minBasinc.toStringAsFixed(1)} bar"),
+                    _buildPdfRow("Maksimum Basinc", "${test.maxBasinc.toStringAsFixed(1)} bar"),
+                    _buildPdfRow("Toplam Pompa Suresi", "${test.toplamPompaSuresi.toStringAsFixed(1)} sn"),
                   ],
                 ),
 
@@ -66,11 +66,11 @@ class RaporDetayEkrani extends StatelessWidget {
                 pw.Table(
                   border: pw.TableBorder.all(color: PdfColors.grey400),
                   children: [
-                    _buildPdfRow("FAZ 0 - Pompa Yükselme", "${test.fazPuanlari['faz0'] ?? 0}/10 Puan"),
-                    _buildPdfRow("FAZ 1 - Isınma", "${test.fazPuanlari['faz1'] ?? 0}/15 Puan"),
-                    _buildPdfRow("FAZ 2 - Basınç Valf Testi", "${test.fazPuanlari['faz2'] ?? 0}/20 Puan"),
+                    _buildPdfRow("FAZ 0 - Pompa Yukselme", "${test.fazPuanlari['faz0'] ?? 0}/10 Puan"),
+                    _buildPdfRow("FAZ 1 - Isinma", "${test.fazPuanlari['faz1'] ?? 0}/15 Puan"),
+                    _buildPdfRow("FAZ 2 - Basinc Valf Testi", "${test.fazPuanlari['faz2'] ?? 0}/20 Puan"),
                     _buildPdfRow("FAZ 3 - Vites Testleri", "${test.fazPuanlari['faz3'] ?? 0}/35 Puan"),
-                    _buildPdfRow("FAZ 4 - Dayanıklılık Testi", "${test.fazPuanlari['faz4'] ?? 0}/20 Puan"),
+                    _buildPdfRow("FAZ 4 - Dayaniklilik Testi", "${test.fazPuanlari['faz4'] ?? 0}/20 Puan"),
                   ],
                 ),
 
@@ -115,10 +115,10 @@ class RaporDetayEkrani extends StatelessWidget {
     if (test.faz0Detaylari.isNotEmpty) {
       fazDetaylari.addAll([
         pw.SizedBox(height: 15),
-        pw.Text("FAZ 0 - POMPA YÜKSELME DETAYLARI",
+        pw.Text("FAZ 0 - POMPA YUKSELME DETAYLARI",
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 5),
-        pw.Text("Ölçüm: ${test.faz0Detaylari['olcum'] ?? 'N/A'} s | Referans: ${test.faz0Detaylari['referans'] ?? 'N/A'} s"),
+        pw.Text("Olcum: ${test.faz0Detaylari['olcum'] ?? 'N/A'} s | Referans: ${test.faz0Detaylari['referans'] ?? 'N/A'} s"),
       ]);
     }
 
@@ -126,13 +126,13 @@ class RaporDetayEkrani extends StatelessWidget {
     if (test.faz2Detaylari.isNotEmpty) {
       fazDetaylari.addAll([
         pw.SizedBox(height: 15),
-        pw.Text("FAZ 2 - BASINÇ VALF TESTİ DETAYLARI",
+        pw.Text("FAZ 2 - BASINC VALF TESTI DETAYLARI",
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 5),
         pw.Text("N436: ${test.faz2Detaylari['n436'] ?? 'N/A'} bar/dk"),
         pw.Text("N440: ${test.faz2Detaylari['n440'] ?? 'N/A'} bar/dk"),
-        pw.Text("Her İkisi: ${test.faz2Detaylari['her_ikisi'] ?? 'N/A'} bar/dk"),
-        pw.Text("Kapalı: ${test.faz2Detaylari['kapali'] ?? 'N/A'} bar/dk"),
+        pw.Text("Her Ikisi: ${test.faz2Detaylari['her_ikisi'] ?? 'N/A'} bar/dk"),
+        pw.Text("Kapali: ${test.faz2Detaylari['kapali'] ?? 'N/A'} bar/dk"),
       ]);
     }
 
@@ -140,7 +140,7 @@ class RaporDetayEkrani extends StatelessWidget {
     if (test.faz3Detaylari.isNotEmpty) {
       fazDetaylari.addAll([
         pw.SizedBox(height: 15),
-        pw.Text("FAZ 3 - VİTES TESTLERİ DETAYLARI",
+        pw.Text("FAZ 3 - VITES TESTLERI DETAYLARI",
             style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 5),
       ]);
@@ -365,11 +365,11 @@ class RaporDetayEkrani extends StatelessWidget {
 
   List<Widget> _buildFazPuanlari(TestVerisi test) {
     final fazlar = [
-      {'label': 'FAZ 0 - Pompa Yükselme', 'key': 'faz0', 'max': 10},
-      {'label': 'FAZ 1 - Isınma', 'key': 'faz1', 'max': 15},
-      {'label': 'FAZ 2 - Basınç Valf Testi', 'key': 'faz2', 'max': 20},
+      {'label': 'FAZ 0 - Pompa Yukselme', 'key': 'faz0', 'max': 10},
+      {'label': 'FAZ 1 - Isİnma', 'key': 'faz1', 'max': 15},
+      {'label': 'FAZ 2 - Basinc Valf Testi', 'key': 'faz2', 'max': 20},
       {'label': 'FAZ 3 - Vites Testleri', 'key': 'faz3', 'max': 35},
-      {'label': 'FAZ 4 - Dayanıklılık Testi', 'key': 'faz4', 'max': 20},
+      {'label': 'FAZ 4 - Dayaniklilik Testi', 'key': 'faz4', 'max': 20},
     ];
 
     return fazlar.map((faz) {

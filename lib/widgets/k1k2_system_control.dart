@@ -79,7 +79,18 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
 
   Widget _buildValveButton(String valve, bool isActive) {
     return ElevatedButton(
-      onPressed: () => widget.app.toggleValve(valve), // ✅ HER ZAMAN TIKLANABİLİR
+      onPressed: () {
+        // ✅ YENİ: K1K2 modu kapalıysa önce modu aç
+        if (!widget.app.isK1K2Mode) {
+          widget.app.setK1K2Mode(true);
+          // 200ms sonra valfi toggle et
+          Future.delayed(Duration(milliseconds: 200), () {
+            widget.app.toggleValve(valve);
+          });
+        } else {
+          widget.app.toggleValve(valve);
+        }
+      },
       style: ElevatedButton.styleFrom(
         backgroundColor: isActive
             ? Colors.lightBlueAccent.withOpacity(0.8)
@@ -96,7 +107,7 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
       child: Text(
         valve,
         style: TextStyle(
-          color: isActive ? Colors.white : Colors.white70, // ✅ Her zaman görünür
+          color: isActive ? Colors.white : Colors.white70,
           fontWeight: FontWeight.bold,
           fontSize: 14,
         ),

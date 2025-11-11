@@ -47,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showTestModuRaporu(TestModuRaporu rapor) {
-    // ✅ YENİ: Dialog zaten gösteriliyorsa tekrar gösterme
+    // ✅ TÜM test modları için dialog göster (sadece T8 değil)
     if (_dialogGosteriliyor) {
       return;
     }
@@ -65,7 +65,6 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
     ).then((value) {
-      // Dialog kapatıldığında durumu sıfırla
       _dialogGosteriliyor = false;
     });
   }

@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'providers/app_state.dart';
-import 'screens/main_home.dart';       // 🔹 sekmeli ana ekran (Home/Test/Log)
+import 'screens/main_home.dart';
 import 'screens/reports_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/database.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,7 +13,14 @@ void main() async {
   // ✅ Önce izinleri kontrol et
   await checkBluetoothPermissions();
 
-  final appState = AppState(mockMode: true);
+  // ✅ Veritabanını başlat
+  await _initializeDatabase();
+
+  // ✅ AppState'i oluştur
+  final appState = AppState(mockMode: false);
+
+  // ✅ Testleri veritabanından yükle (async olarak devam et)
+  _loadInitialData(appState);
 
   runApp(
     MultiProvider(
@@ -22,6 +30,35 @@ void main() async {
       child: const MyApp(),
     ),
   );
+}
+
+// ✅ Veritabanı başlatma (basitleştirilmiş)
+Future<void> _initializeDatabase() async {
+  try {
+    final dbService = DatabaseService();
+    await dbService.database; // Database'i aç
+
+    // Tablo var mı kontrol et
+    final tableExists = await dbService.isTableExists();
+    print('✅ SQLite veritabanı başlatıldı - Tablo mevcut: $tableExists');
+
+    // Basit test sayısı kontrolü
+    final tests = await dbService.getTests();
+    print('📊 Veritabanında ${tests.length} test kaydı bulundu');
+
+  } catch (e) {
+    print('❌ Veritabanı başlatma hatası: $e');
+  }
+}
+
+// ✅ Async veri yükleme - uygulamanın başlamasını beklemez
+void _loadInitialData(AppState appState) async {
+  try {
+    await appState.loadTestsFromLocal();
+    print('✅ Başlangıç verileri yüklendi: ${appState.completedTests.length} test');
+  } catch (e) {
+    print('❌ Başlangıç veri yükleme hatası: $e');
+  }
 }
 
 Future<void> checkBluetoothPermissions() async {
@@ -55,8 +92,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final appState = Provider.of<AppState>(context, listen: true);
-
     return MaterialApp(
       title: 'DQ200 Controller',
       debugShowCheckedModeBanner: false,
@@ -66,13 +101,18 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
-        // 🔹 Artık Home yerine MainHomeScreen açılıyor
         '/': (_) => MainHomeScreen(),
         '/reports': (_) => const RaporlarEkrani(),
         '/settings': (_) => const SettingsScreen(),
       },
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaleFactor: 1.0,
+          ),
+          child: child!,
+        );
+      },
     );
   }
-
-
 }
