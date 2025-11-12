@@ -23,10 +23,7 @@ class _TestScreenState extends State<TestScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _app = Provider.of<AppState>(context, listen: false);
-      _app.onTestCompleted = _onTestCompleted;
-
-      // ✅ DEBUG: Callback'in atandığını kontrol et
-      print('[DEBUG] onTestCompleted callback atandı: ${_app.onTestCompleted != null}');
+      _app.onTestCompleted = _onTestCompleted; // ✅ Bu atama çalışıyor mu?
     });
   }
 
@@ -199,13 +196,24 @@ class _TestScreenState extends State<TestScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, app, _) {
+        // DEBUG: Test durumunu ve callback'i kontrol et
+        print('[DEBUG] Build - Test State: ${app.currentTestState}');
+        print('[DEBUG] Build - Callback: ${app.onTestCompleted != null}');
+        print('[DEBUG] Build - Completed Tests: ${app.completedTests.length}');
+
+        // Son testi manuel kontrol et
         if (app.completedTests.isNotEmpty && _lastCompletedTest == null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            final lastTest = app.completedTests.first;
-            if (lastTest.tarih.isAfter(DateTime.now().subtract(Duration(minutes: 1)))) {
-              _onTestCompleted(lastTest);
-            }
-          });
+          final lastTest = app.completedTests.first;
+          print('[DEBUG] Son test bulundu: ${lastTest.testAdi}');
+
+          // 2 dakika içindeki testleri göster
+          if (lastTest.tarih.isAfter(DateTime.now().subtract(Duration(minutes: 2)))) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!_isDialogShowing) {
+                _onTestCompleted(lastTest);
+              }
+            });
+          }
         }
         final currentPhase = app.currentPhase;
         final phaseName = _getPhaseName(currentPhase);

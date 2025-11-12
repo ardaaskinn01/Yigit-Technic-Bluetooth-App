@@ -12,8 +12,12 @@ class RaporlarEkrani extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = Provider.of<AppState>(context);
 
+    // ✅ DEBUG: Test sayısını kontrol et
+    print('📋 [REPORTS] Toplam test sayısı: ${app.completedTests.length}');
+
     // Testleri ters çevir (en son test en yukarıda)
     final reversedTests = app.completedTests.reversed.toList();
+    print('📋 [REPORTS] Ters çevrilmiş test sayısı: ${reversedTests.length}');
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -36,6 +40,20 @@ class RaporlarEkrani extends StatelessWidget {
               tooltip: 'Tüm Raporları Sil',
               onPressed: () => _showDeleteConfirmationDialog(context, app),
             ),
+          // ✅ DEBUG: Yenile butonu ekle
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            tooltip: 'Yenile',
+            onPressed: () {
+              app.loadTestsFromLocal();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Raporlar yenilendi'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+          ),
         ],
       ),
       body: Container(
@@ -47,11 +65,22 @@ class RaporlarEkrani extends StatelessWidget {
           ),
         ),
         child: reversedTests.isEmpty
-            ? const Center(
-          child: Text(
-            'Henüz test raporu bulunmuyor',
-            style: TextStyle(color: Colors.white70, fontSize: 16),
-          ),
+            ? Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'Henüz test raporu bulunmuyor',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            const SizedBox(height: 20),
+            // ✅ DEBUG: Manuel yükleme butonu
+            ElevatedButton(
+              onPressed: () {
+                app.loadTestsFromLocal();
+              },
+              child: const Text('Testleri Yeniden Yükle'),
+            ),
+          ],
         )
             : ListView.separated(
           itemCount: reversedTests.length,
@@ -62,6 +91,7 @@ class RaporlarEkrani extends StatelessWidget {
           ),
           itemBuilder: (context, index) {
             final t = reversedTests[index];
+            print('📋 [REPORTS] Gösterilen test: ${t.testAdi}');
             return _buildTestItem(context, t, app);
           },
         ),

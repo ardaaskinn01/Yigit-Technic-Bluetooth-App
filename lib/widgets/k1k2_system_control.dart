@@ -40,23 +40,31 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
           const SizedBox(height: 10),
 
           // Ana Switch - K1K2 Modu
-          Switch(
-            value: isK1K2Active,
-            activeColor: Colors.lightGreenAccent,
-            inactiveTrackColor: Colors.white.withOpacity(0.3),
-            inactiveThumbColor: Colors.grey[400],
-            onChanged: (value) {
-              // AppState üzerinden merkezi olarak yönet
-              widget.app.setK1K2Mode(value);
-            },
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'K1K2 Modu:',
+                style: TextStyle(color: Colors.white, fontSize: 12),
+              ),
+              Switch(
+                value: isK1K2Active,
+                activeColor: Colors.lightGreenAccent,
+                inactiveTrackColor: Colors.white.withOpacity(0.3),
+                inactiveThumbColor: Colors.grey[400],
+                onChanged: (value) {
+                  widget.app.setK1K2Mode(value);
+                },
+              ),
+            ],
           ),
 
-          // K1 K2 Butonları - HER ZAMAN TIKLANABİLİR
+          // K1 K2 Butonları
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildValveButton('K1', k1Active),
-              _buildValveButton('K2', k2Active),
+              _buildValveButton('K1', k1Active, isK1K2Active),
+              _buildValveButton('K2', k2Active, isK1K2Active),
             ],
           ),
           const SizedBox(height: 4),
@@ -64,8 +72,8 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
           // Durum bilgisi
           Text(
             isK1K2Active
-                ? "Debriyaj aktif"
-                : "Debriyaj deaktif",
+                ? "K1: ${k1Active ? 'Aktif' : 'Pasif'}, K2: ${k2Active ? 'Aktif' : 'Pasif'}"
+                : "K1K2 Modu Kapalı",
             style: TextStyle(
               fontSize: 10,
               color: isK1K2Active ? Colors.lightGreenAccent : Colors.orangeAccent,
@@ -77,28 +85,42 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
     );
   }
 
-  Widget _buildValveButton(String valve, bool isActive) {
+  Widget _buildValveButton(String valve, bool isActive, bool isK1K2ModeEnabled) {
+    Color backgroundColor;
+    Color borderColor;
+
+    if (!isK1K2ModeEnabled) {
+      backgroundColor = Colors.grey.withOpacity(0.3);
+      borderColor = Colors.grey;
+    } else if (isActive) {
+      backgroundColor = Colors.lightBlueAccent.withOpacity(0.8);
+      borderColor = Colors.lightBlueAccent;
+    } else {
+      backgroundColor = Colors.white.withOpacity(0.15);
+      borderColor = Colors.grey.withOpacity(0.5);
+    }
+
     return ElevatedButton(
       onPressed: () {
-        // ✅ YENİ: K1K2 modu kapalıysa önce modu aç
-        if (!widget.app.isK1K2Mode) {
+        if (!isK1K2ModeEnabled) {
+          // K1K2 modu kapalıysa önce modu aç
           widget.app.setK1K2Mode(true);
-          // 200ms sonra valfi toggle et
-          Future.delayed(Duration(milliseconds: 200), () {
-            widget.app.toggleValve(valve);
+          // Kısa bekleme sonrası valfi toggle et
+          Future.delayed(Duration(milliseconds: 300), () {
+            if (widget.app.isK1K2Mode) {
+              widget.app.toggleValve(valve);
+            }
           });
         } else {
           widget.app.toggleValve(valve);
         }
       },
       style: ElevatedButton.styleFrom(
-        backgroundColor: isActive
-            ? Colors.lightBlueAccent.withOpacity(0.8)
-            : Colors.white.withOpacity(0.15),
+        backgroundColor: backgroundColor,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(
-            color: isActive ? Colors.lightBlueAccent : Colors.grey.withOpacity(0.5),
+            color: borderColor,
             width: 1.5,
           ),
         ),
@@ -107,7 +129,7 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
       child: Text(
         valve,
         style: TextStyle(
-          color: isActive ? Colors.white : Colors.white70,
+          color: isK1K2ModeEnabled ? Colors.white : Colors.grey,
           fontWeight: FontWeight.bold,
           fontSize: 14,
         ),
