@@ -51,22 +51,15 @@ class ValveStatusPanel extends StatelessWidget {
   }
 
   Widget _valveItem(String name, String func, bool isActive) {
-    // K1/K2 valfleri için özel renk
-    bool isK1K2Valve = name == 'N435' || name == 'N439';
-    Color activeColor = isK1K2Valve ? Colors.orangeAccent : Colors.greenAccent;
-    Color inactiveColor = isK1K2Valve ? Colors.orange.withOpacity(0.3) : Colors.grey;
-
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 150), // Daha kısa animasyon
       curve: Curves.easeInOut,
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: isActive
-            ? activeColor.withOpacity(0.15)
-            : Colors.white10,
+        color: isActive ? Colors.green.withOpacity(0.15) : Colors.white10,
         border: Border(
           left: BorderSide(
-            color: isActive ? activeColor : inactiveColor,
+            color: isActive ? Colors.greenAccent : Colors.white24,
             width: 4,
           ),
         ),
@@ -74,13 +67,13 @@ class ValveStatusPanel extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Durum göstergesi
+          // Durum göstergesi - daha stabil
           Container(
             width: 10,
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isActive ? activeColor : inactiveColor,
+              color: isActive ? Colors.greenAccent : Colors.grey,
             ),
           ),
           const SizedBox(width: 8),
@@ -90,25 +83,17 @@ class ValveStatusPanel extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(name,
-                    style: TextStyle(
+                    style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        color: isActive ? activeColor : Colors.white,
+                        color: Colors.white,
                         fontSize: 13)),
                 Text(func,
-                    style: TextStyle(
-                        fontSize: 10,
-                        color: isActive ? activeColor.withOpacity(0.8) : Colors.white70),
+                    style: const TextStyle(
+                        fontSize: 10, color: Colors.white70),
                     overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
-          // K1K2 modu göstergesi
-          if (isK1K2Valve)
-            Icon(
-              Icons.settings,
-              size: 12,
-              color: isActive ? activeColor : inactiveColor,
-            ),
         ],
       ),
     );

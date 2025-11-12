@@ -12,12 +12,26 @@ class RaporlarEkrani extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = Provider.of<AppState>(context);
 
-    // ✅ DEBUG: Test sayısını kontrol et
-    print('📋 [REPORTS] Toplam test sayısı: ${app.completedTests.length}');
+    // ✅ GELİŞTİRİLMİŞ DEBUG: Detaylı bilgi
+    print('📋 [REPORTS DEBUG] =================================');
+    print('   - Toplam test sayısı: ${app.completedTests.length}');
+    print('   - Veritabanı test sayısı: ${app.completedTests.length}');
+
+    // Testleri ID'ye göre sırala ve debug et
+    final sortedTests =
+    app.completedTests.toList()..sort((a, b) => b.tarih.compareTo(a.tarih));
+
+    print('   - Sıralanmış testler:');
+    for (int i = 0; i < sortedTests.length; i++) {
+      print(
+        '     ${i + 1}. ${sortedTests[i].testAdi} - ${sortedTests[i].tarih} - ID: ${sortedTests[i].id}',
+      );
+    }
 
     // Testleri ters çevir (en son test en yukarıda)
-    final reversedTests = app.completedTests.reversed.toList();
-    print('📋 [REPORTS] Ters çevrilmiş test sayısı: ${reversedTests.length}');
+    final reversedTests = sortedTests; // Zaten sıralı, ters çevirmeye gerek yok
+    print('📋 [REPORTS] Gösterilecek test sayısı: ${reversedTests.length}');
+    print('📋 [REPORTS DEBUG] =================================');
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -34,24 +48,37 @@ class RaporlarEkrani extends StatelessWidget {
         ),
         centerTitle: true,
         actions: [
+          // ✅ VERİTABANI BİLGİ BUTONU
+          IconButton(
+            icon: const Icon(Icons.info, color: Colors.white),
+            tooltip: 'Veritabanı Bilgisi',
+            onPressed: () => _showDatabaseInfo(context, app),
+          ),
           if (app.completedTests.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_sweep, color: Colors.white),
               tooltip: 'Tüm Raporları Sil',
               onPressed: () => _showDeleteConfirmationDialog(context, app),
             ),
-          // ✅ DEBUG: Yenile butonu ekle
+          // ✅ GELİŞTİRİLMİŞ YENİLE BUTONU
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Yenile',
-            onPressed: () {
-              app.loadTestsFromLocal();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Raporlar yenilendi'),
-                  backgroundColor: Colors.green,
-                ),
-              );
+            onPressed: () async {
+              print('🔄 Manuel yenileme başlatıldı');
+
+              // Veritabanından yeniden yükle
+              await app.loadTestsFromLocal();
+
+              // State'i güncelle
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('${app.completedTests.length} test yüklendi'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
             },
           ),
         ],
@@ -73,12 +100,38 @@ class RaporlarEkrani extends StatelessWidget {
               style: TextStyle(color: Colors.white70, fontSize: 16),
             ),
             const SizedBox(height: 20),
-            // ✅ DEBUG: Manuel yükleme butonu
-            ElevatedButton(
-              onPressed: () {
-                app.loadTestsFromLocal();
-              },
-              child: const Text('Testleri Yeniden Yükle'),
+            // ✅ GELİŞTİRİLMİŞ MANUEL YÜKLEME
+            Column(
+              children: [
+                ElevatedButton(
+                  onPressed: () async {
+                    print('🔄 Testleri yeniden yükle butonu tıklandı');
+                    await app.loadTestsFromLocal();
+
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${app.completedTests.length} test yüklendi',
+                          ),
+                          backgroundColor: app.completedTests.isEmpty
+                              ? Colors.orange
+                              : Colors.green,
+                        ),
+                      );
+                    }
+                  },
+                  child: const Text('Testleri Yeniden Yükle'),
+                ),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: () => _showDatabaseInfo(context, app),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueGrey,
+                  ),
+                  child: const Text('Veritabanı Bilgisi'),
+                ),
+              ],
             ),
           ],
         )
@@ -91,12 +144,63 @@ class RaporlarEkrani extends StatelessWidget {
           ),
           itemBuilder: (context, index) {
             final t = reversedTests[index];
-            print('📋 [REPORTS] Gösterilen test: ${t.testAdi}');
+            print(
+              '📋 [REPORTS] Gösterilen test: ${t.testAdi} - ${t.tarih}',
+            );
             return _buildTestItem(context, t, app);
           },
         ),
       ),
     );
+  }
+
+  // ✅ DÜZELTİLDİ: Veritabanı bilgisi göster - async metod
+  void _showDatabaseInfo(BuildContext context, AppState app) async {
+    try {
+      final dbInfo = await app.getDatabaseInfo();
+      final tableExists = await app.isTableExists();
+
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Veritabanı Bilgisi'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Toplam Test: ${dbInfo['totalTests']}'),
+                Text('Son Test: ${dbInfo['latestTestName'] ?? "YOK"}'),
+                if (dbInfo['latestTestDate'] != null)
+                  Text(
+                    'Son Test Tarihi: ${DateFormat('dd.MM.yyyy HH:mm').format(dbInfo['latestTestDate']!)}',
+                  ),
+                const SizedBox(height: 10),
+                Text('UI Liste: ${app.completedTests.length} test'),
+                const SizedBox(height: 10),
+                Text('Tablo Var Mı: ${tableExists ? "EVET" : "HAYIR"}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Kapat'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Veritabanı bilgisi alma hatası: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Veritabanı bilgisi alınamadı: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildTestItem(BuildContext context, dynamic t, AppState app) {
@@ -129,11 +233,7 @@ class RaporlarEkrani extends StatelessWidget {
             color: _getStatusColor(t.sonuc),
             shape: BoxShape.circle,
           ),
-          child: Icon(
-            _getStatusIcon(t.sonuc),
-            color: Colors.white,
-            size: 20,
-          ),
+          child: Icon(_getStatusIcon(t.sonuc), color: Colors.white, size: 20),
         ),
         title: Text(
           t.testAdi,
@@ -180,9 +280,7 @@ class RaporlarEkrani extends StatelessWidget {
         ),
         onTap: () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => RaporDetayEkrani(test: t),
-          ),
+          MaterialPageRoute(builder: (_) => RaporDetayEkrani(test: t)),
         ),
       ),
     );
@@ -233,12 +331,17 @@ class RaporlarEkrani extends StatelessWidget {
     }
   }
 
-  Future<bool> _showDeleteSingleDialog(BuildContext context, String testName) async {
+  Future<bool> _showDeleteSingleDialog(
+      BuildContext context,
+      String testName,
+      ) async {
     return await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Raporu Sil'),
-        content: Text('"$testName" raporunu silmek istediğinizden emin misiniz?'),
+        content: Text(
+          '"$testName" raporunu silmek istediğinizden emin misiniz?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -260,7 +363,9 @@ class RaporlarEkrani extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Tüm Raporları Sil'),
-        content: const Text('Tüm test raporlarını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.'),
+        content: const Text(
+          'Tüm test raporlarını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -279,7 +384,11 @@ class RaporlarEkrani extends StatelessWidget {
     );
   }
 
-  void _deleteSingleTest(BuildContext context, AppState app, TestVerisi test) async {
+  void _deleteSingleTest(
+      BuildContext context,
+      AppState app,
+      TestVerisi test,
+      ) async {
     try {
       await app.deleteTest(test);
 

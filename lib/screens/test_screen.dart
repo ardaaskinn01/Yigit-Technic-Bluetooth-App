@@ -23,7 +23,10 @@ class _TestScreenState extends State<TestScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _app = Provider.of<AppState>(context, listen: false);
-      _app.onTestCompleted = _onTestCompleted; // ✅ Bu atama çalışıyor mu?
+
+      // ✅ CALLBACK'İ GÜVENLİ ŞEKİLDE AYARLA
+      _app.onTestCompleted = _onTestCompleted;
+      print('[DEBUG] Callback ayarlandı: ${_app.onTestCompleted != null}');
     });
   }
 

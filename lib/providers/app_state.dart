@@ -89,7 +89,7 @@ class AppState extends ChangeNotifier {
 
   // State geçişleri için timer
   Timer? _stateTimeoutTimer;
-  final Duration _stateTimeout = Duration(minutes: 2); // State timeout
+  final Duration _stateTimeout = Duration(minutes: 24); // State timeout
 
   // Önceki state (geri dönüş için)
   TestState? _previousState;
@@ -331,22 +331,38 @@ class AppState extends ChangeNotifier {
   }
 
   void _onTestCompleted() {
-    logs.add('Test tamamlandı!');
-    _currentPhase = TestPhase.completed;
-    isTesting = false;
-    testFinished = true;
-    testStatus = 'Tamamlandı';
+    logs.add('🎉 TEST TAMAMLANDI CALLBACK ÇAĞRILDI!');
 
-    // ✅ DÜZELTİLDİ: _lastParsedTest kullan
-    if (onTestCompleted != null && _lastParsedTest != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        onTestCompleted!(_lastParsedTest!);
-      });
+    // ✅ _lastParsedTest kontrolü
+    if (_lastParsedTest == null) {
+      logs.add('❌ HATA: _lastParsedTest NULL!');
+      return;
     }
 
-    _resetSystemAfterTest();
+    print('[DEBUG] _onTestCompleted: ${_lastParsedTest!.testAdi}');
+    print('[DEBUG] Callback durumu: ${onTestCompleted != null}');
+
+    // ✅ Callback tetikleme
+    if (onTestCompleted != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        print('[DEBUG] onTestCompleted callback tetikleniyor');
+        onTestCompleted!(_lastParsedTest!);
+      });
+    } else {
+      print('❌ onTestCompleted callback NULL!');
+    }
+
+    // ✅ UI güncelleme
+    notifyListeners();
   }
 
+  Future<Map<String, dynamic>> getDatabaseInfo() async {
+    return await _dbService.getDatabaseInfo();
+  }
+
+  Future<bool> isTableExists() async {
+    return await _dbService.isTableExists();
+  }
 
   Future<void> initializeApp() async {
     try {
@@ -647,11 +663,17 @@ class AppState extends ChangeNotifier {
   void _sendSingleValveStateToBluetooth(String valveKey, bool state) {
     try {
       String bluetoothCommand = valveKey;
+
+      // Bluetooth komut eşleştirmesi
       if (valveKey == 'N436') bluetoothCommand = 'N36';
       if (valveKey == 'N440') bluetoothCommand = 'N40';
+      if (valveKey == 'K1') bluetoothCommand = 'K1';    // ESP32'de K1 komutu
+      if (valveKey == 'K2') bluetoothCommand = 'K2';    // ESP32'de K2 komutu
 
       String command = state ? "1" : "0";
       sendCommand("$bluetoothCommand=$command");
+
+      logs.add('[BLUETOOTH] $bluetoothCommand=$command gönderildi');
 
     } catch (e) {
       logs.add('[HATA] Valf durumu gönderilemedi $valveKey: $e');
@@ -1381,20 +1403,24 @@ class AppState extends ChangeNotifier {
     print('[DEBUG] _saveParsedTest başladı: ${test.testAdi}');
 
     try {
+      // ✅ ÖNCE veritabanına kaydet
       await saveTest(test);
       print('[DEBUG] Test veritabanına kaydedildi: ${test.testAdi}');
 
-      _lastParsedTest = test;
+      // ✅ SONRA listeyi güncelle
+      completedTests.insert(0, test);
 
-      // Callback kontrolü
+      // ✅ EN SON callback tetikle
       if (onTestCompleted != null) {
         print('[DEBUG] onTestCompleted callback tetikleniyor');
-        onTestCompleted!(test);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onTestCompleted!(test);
+        });
       } else {
         print('[❌ DEBUG] onTestCompleted callback NULL!');
       }
 
-      // UI güncelleme
+      // ✅ UI'ı güncelle
       notifyListeners();
 
     } catch (e) {
@@ -1700,14 +1726,6 @@ class AppState extends ChangeNotifier {
 // Manuel valf değişikliğinde çağırın
   void toggleValve(String key) {
     if (!valveStates.containsKey(key)) return;
-
-    // ✅ K1/K2 valfleri için özel kontrol
-    if (key == 'K1' || key == 'N435' || key == 'K2' || key == 'N439') {
-      if (!isK1K2Mode) {
-        logs.add('⚠️ K1/K2 valfi değiştirilemez - Önce K1K2 modunu açın');
-        return;
-      }
-    }
 
     bool newState = !(valveStates[key] ?? false);
     valveStates[key] = newState;

@@ -86,13 +86,19 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
   }
 
   Widget _buildValveButton(String valve, bool isActive, bool isK1K2ModeEnabled) {
+    // Butonun gerçek valve key'ini belirle
+    String actualValveKey = valve == 'K1' ? 'N435' : 'N439';
+    bool actualState = valve == 'K1'
+        ? widget.app.valveStates['N435'] ?? false
+        : widget.app.valveStates['N439'] ?? false;
+
     Color backgroundColor;
     Color borderColor;
 
     if (!isK1K2ModeEnabled) {
       backgroundColor = Colors.grey.withOpacity(0.3);
       borderColor = Colors.grey;
-    } else if (isActive) {
+    } else if (actualState) {
       backgroundColor = Colors.lightBlueAccent.withOpacity(0.8);
       borderColor = Colors.lightBlueAccent;
     } else {
@@ -108,11 +114,13 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
           // Kısa bekleme sonrası valfi toggle et
           Future.delayed(Duration(milliseconds: 300), () {
             if (widget.app.isK1K2Mode) {
-              widget.app.toggleValve(valve);
+              // Gerçek valve key'i kullan
+              widget.app.toggleValve(actualValveKey);
             }
           });
         } else {
-          widget.app.toggleValve(valve);
+          // Gerçek valve key'i kullan
+          widget.app.toggleValve(actualValveKey);
         }
       },
       style: ElevatedButton.styleFrom(

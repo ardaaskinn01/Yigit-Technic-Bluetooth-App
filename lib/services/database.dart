@@ -17,6 +17,9 @@ class DatabaseService {
 
   Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'mekatronik_tests.db');
+
+    print('[DATABASE] Veritabanı yolu: $path');
+
     return await openDatabase(
       path,
       version: 1,
@@ -25,6 +28,7 @@ class DatabaseService {
   }
 
   Future<void> _createDatabase(Database db, int version) async {
+    print('[DATABASE] Tablo oluşturuluyor...');
     await db.execute('''
       CREATE TABLE tests(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,53 +42,89 @@ class DatabaseService {
         fazPuanlari TEXT
       )
     ''');
+    print('[DATABASE] Tablo başarıyla oluşturuldu');
   }
 
   // Test ekleme
   Future<int> insertTest(TestVerisi test) async {
     final db = await database;
-    final id = await db.insert('tests', test.toDbMap());
 
-    print('[DATABASE] Test kaydedildi: ${test.testAdi} (ID: $id)');
+    print('[DATABASE] Test kaydediliyor: ${test.testAdi}');
+    print('[DATABASE] Test verisi: ${test.toDbMap()}');
 
-    // ✅ YENİ: Kayıt sonrası test et
-    final verify = await db.query('tests', where: 'id = ?', whereArgs: [id]);
-    if (verify.isEmpty) {
-      print('[DATABASE HATA] Test kaydı doğrulanamadı!');
-    } else {
-      print('[DATABASE] Test kaydı doğrulandı');
+    try {
+      final id = await db.insert('tests', test.toDbMap());
+      print('[DATABASE] ✅ Test kaydedildi: ${test.testAdi} (ID: $id)');
+
+      // ✅ KAYIT SONRASI DOĞRULAMA
+      final verify = await db.query('tests', where: 'id = ?', whereArgs: [id]);
+      if (verify.isEmpty) {
+        print('[DATABASE] ❌ HATA: Test kaydı doğrulanamadı!');
+      } else {
+        print('[DATABASE] ✅ Test kaydı doğrulandı');
+
+        // Tüm kayıtları say
+        final allRecords = await db.query('tests');
+        print('[DATABASE] 📊 Toplam kayıt sayısı: ${allRecords.length}');
+      }
+
+      return id;
+    } catch (e) {
+      print('[DATABASE] ❌ Kayıt hatası: $e');
+      rethrow;
     }
-
-    return id;
   }
 
   // Tüm testleri getir
   Future<List<TestVerisi>> getTests() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('tests', orderBy: 'tarih DESC');
 
-    return List.generate(maps.length, (i) {
-      return TestVerisi.fromDbMap(maps[i]);
-    });
+    print('[DATABASE] Testler yükleniyor...');
+
+    try {
+      final List<Map<String, dynamic>> maps = await db.query(
+          'tests',
+          orderBy: 'tarih DESC',
+          limit: 100 // Maksimum 100 kayıt
+      );
+
+      print('[DATABASE] 📊 ${maps.length} test yüklendi');
+
+      // Debug için ilk 3 kaydı göster
+      for (int i = 0; i < maps.length && i < 3; i++) {
+        print('[DATABASE]   ${i + 1}. ${maps[i]['testAdi']} - ${DateTime.fromMillisecondsSinceEpoch(maps[i]['tarih'] as int)}');
+      }
+
+      return List.generate(maps.length, (i) {
+        return TestVerisi.fromDbMap(maps[i]);
+      });
+    } catch (e) {
+      print('[DATABASE] ❌ Yükleme hatası: $e');
+      return [];
+    }
   }
 
   // Test silme
   Future<void> deleteTest(int id) async {
     final db = await database;
     await db.delete('tests', where: 'id = ?', whereArgs: [id]);
+    print('[DATABASE] Test silindi: ID $id');
   }
 
   // Tüm testleri silme
   Future<void> deleteAllTests() async {
     final db = await database;
     await db.delete('tests');
+    print('[DATABASE] Tüm testler silindi');
   }
 
-  // ✅ YENİ: Veritabanı bilgilerini getir
+  // ✅ VERİTABANI BİLGİLERİNİ GETİR
   Future<Map<String, dynamic>> getDatabaseInfo() async {
     final db = await database;
 
     try {
+      print('[DATABASE] Veritabanı bilgisi alınıyor...');
+
       // Toplam test sayısı
       final countResult = await db.rawQuery('SELECT COUNT(*) as count FROM tests');
       final totalTests = countResult.first['count'] as int? ?? 0;
@@ -107,32 +147,51 @@ class DatabaseService {
         }
       }
 
+      // Tüm tablo bilgisi
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+
+      print('[DATABASE] 📊 Veritabanı bilgisi:');
+      print('   - Toplam test: $totalTests');
+      print('   - Son test: $latestTestName');
+      print('   - Son test tarihi: $latestTestDate');
+      print('   - Tablolar: ${tables.map((t) => t['name']).toList()}');
+
       return {
         'totalTests': totalTests,
         'latestTestName': latestTestName,
         'latestTestDate': latestTestDate,
+        'tables': tables.map((t) => t['name'] as String).toList(),
       };
     } catch (e) {
-      print('Veritabanı bilgisi alma hatası: $e');
+      print('[DATABASE] ❌ Veritabanı bilgisi alma hatası: $e');
       return {
         'totalTests': 0,
         'latestTestName': null,
         'latestTestDate': null,
+        'tables': [],
       };
     }
   }
 
-  // ✅ YENİ: Tablo var mı kontrol et
+  // ✅ TABLO VAR MI KONTROL ET
   Future<bool> isTableExists() async {
     final db = await database;
     try {
       final result = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='tests'"
       );
-      return result.isNotEmpty;
+      final exists = result.isNotEmpty;
+      print('[DATABASE] Tablo kontrolü: ${exists ? "VAR" : "YOK"}');
+      return exists;
     } catch (e) {
+      print('[DATABASE] ❌ Tablo kontrol hatası: $e');
       return false;
     }
   }
 
+  // ✅ VERİTABANI YOLUNU GETİR (Debug için)
+  Future<String> getDatabasePath() async {
+    final db = await database;
+    return db.path;
+  }
 }
