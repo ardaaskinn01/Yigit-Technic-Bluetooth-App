@@ -16,11 +16,9 @@ void main() async {
   // ✅ Veritabanını başlat
   await _initializeDatabase();
 
-  // ✅ AppState'i oluştur
+  // ✅ AppState'i oluştur ve INITIALIZE ET
   final appState = AppState(mockMode: false);
-
-  // ✅ Testleri veritabanından yükle (async olarak devam et)
-  _loadInitialData(appState);
+  await appState.initializeApp(); // ⭐ BU SATIRI EKLEYİN
 
   runApp(
     MultiProvider(
@@ -48,16 +46,6 @@ Future<void> _initializeDatabase() async {
 
   } catch (e) {
     print('❌ Veritabanı başlatma hatası: $e');
-  }
-}
-
-// ✅ Async veri yükleme - uygulamanın başlamasını beklemez
-void _loadInitialData(AppState appState) async {
-  try {
-    await appState.loadTestsFromLocal();
-    print('✅ Başlangıç verileri yüklendi: ${appState.completedTests.length} test');
-  } catch (e) {
-    print('❌ Başlangıç veri yükleme hatası: $e');
   }
 }
 

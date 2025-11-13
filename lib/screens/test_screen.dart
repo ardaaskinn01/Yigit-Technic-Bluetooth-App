@@ -30,24 +30,6 @@ class _TestScreenState extends State<TestScreen> {
     });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final app = Provider.of<AppState>(context);
-
-    // Test state'i değiştiğinde kontrol et
-    if (app.currentTestState == TestState.completed &&
-        app.completedTests.isNotEmpty &&
-        !_isDialogShowing) {
-
-      // Son testi al ve dialog göster
-      final lastTest = app.completedTests.first;
-      if (lastTest.tarih.isAfter(DateTime.now().subtract(Duration(minutes: 1)))) {
-        _onTestCompleted(lastTest);
-      }
-    }
-  }
-
   String _getPhaseName(TestPhase phase) {
     switch (phase) {
       case TestPhase.idle:
@@ -70,26 +52,24 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   void _onTestCompleted(TestVerisi test) {
-    print('[DEBUG] _onTestCompleted called:');
-    print('  - Test Adı: ${test.testAdi}');
-    print('  - Puan: ${test.puan}');
-    print('  - Sonuç: ${test.sonuc}');
-    print('  - _isDialogShowing: $_isDialogShowing');
+    print('[DEBUG] _onTestCompleted called: ${test.testAdi}');
 
-    // ✅ YENİ: Son testi sakla
-    _lastCompletedTest = test;
+    // ✅ ÇOK ÖNEMLİ: Aynı test için tekrarı önle
+    if (_lastCompletedTest?.testAdi == test.testAdi &&
+        _lastCompletedTest!.tarih.difference(test.tarih).inSeconds.abs() < 5) {
+      print('[DEBUG] Aynı test zaten işlendi, atlanıyor');
+      return;
+    }
 
-    // Dialog zaten gösteriliyorsa tekrar gösterme
+    // ✅ Dialog kontrolü
     if (_isDialogShowing) {
-      print('[DEBUG] Dialog already showing, skipping');
+      print('[DEBUG] Dialog zaten açık, atlanıyor');
       return;
     }
 
     _isDialogShowing = true;
+    _lastCompletedTest = test;
 
-    print('[DEBUG] Showing completion dialog for: ${test.testAdi}');
-
-    // Hangi dialogu göstereceğimize karar ver
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showDeviceResultDialog(test);
     });
@@ -151,19 +131,17 @@ class _TestScreenState extends State<TestScreen> {
           ),
           actions: <Widget>[
             TextButton(
-              child: const Text("KAPAT",
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              child: const Text("KAPAT"),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                _isDialogShowing = false;
+                _isDialogShowing = false; // ✅ Burada sıfırla
               },
             ),
             TextButton(
-              child: const Text("RAPORU GÖRÜNTÜLE",
-                  style: TextStyle(color: Colors.white, fontSize: 16)),
+              child: const Text("RAPORU GÖRÜNTÜLE"),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                _isDialogShowing = false;
+                _isDialogShowing = false; // ✅ Burada da sıfırla
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -176,8 +154,9 @@ class _TestScreenState extends State<TestScreen> {
         );
       },
     ).then((_) {
+      // ✅ Ek güvenlik: her durumda sıfırla
       _isDialogShowing = false;
-      print('[DEBUG] Device dialog closed');
+      print('[DEBUG] Dialog kapandı, flag sıfırlandı');
     });
   }
 
@@ -204,20 +183,6 @@ class _TestScreenState extends State<TestScreen> {
         print('[DEBUG] Build - Callback: ${app.onTestCompleted != null}');
         print('[DEBUG] Build - Completed Tests: ${app.completedTests.length}');
 
-        // Son testi manuel kontrol et
-        if (app.completedTests.isNotEmpty && _lastCompletedTest == null) {
-          final lastTest = app.completedTests.first;
-          print('[DEBUG] Son test bulundu: ${lastTest.testAdi}');
-
-          // 2 dakika içindeki testleri göster
-          if (lastTest.tarih.isAfter(DateTime.now().subtract(Duration(minutes: 2)))) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!_isDialogShowing) {
-                _onTestCompleted(lastTest);
-              }
-            });
-          }
-        }
         final currentPhase = app.currentPhase;
         final phaseName = _getPhaseName(currentPhase);
         // ✅ DÜZELTİLDİ: Tüm aktif test durumlarını kontrol et

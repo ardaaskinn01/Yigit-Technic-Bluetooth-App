@@ -10,8 +10,6 @@ import '../services/database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-import '../utils/mekatronik_puanlama.dart';
-
 enum TestPhase { idle, phase0, phase1, phase2, phase3, phase4, completed }
 
 enum TestState {
@@ -87,6 +85,8 @@ class AppState extends ChangeNotifier {
   TestPhase get currentPhase => _currentPhase;
   TestVerisi? _lastParsedTest;
   TestVerisi? get lastParsedTest => _lastParsedTest;
+  bool _isInitialized = false;
+  bool _testCallbackTriggered = false;
 
   // State geçişleri için timer
   Timer? _stateTimeoutTimer;
@@ -169,7 +169,6 @@ class AppState extends ChangeNotifier {
   Timer? _testTimer;
   int _elapsedTestSeconds = 0;
   Function(String)? onDeviceReportReceived;
-  Timer? _uiUpdateTimer;
   final List<Function(String)> _reportCallbacks = [];
 
   // Test verileri
@@ -322,6 +321,23 @@ class AppState extends ChangeNotifier {
     _startStateTimeout();
   }
 
+  void _triggerTestCompletedCallback(TestVerisi test) {
+    if (onTestCompleted != null && !_testCallbackTriggered) {
+      _testCallbackTriggered = true;
+      print('[DEBUG] Callback tetikleniyor: ${test.testAdi}');
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onTestCompleted!(test);
+
+        // 3 saniye sonra flag'i sıfırla
+        Future.delayed(Duration(seconds: 3), () {
+          _testCallbackTriggered = false;
+          print('[DEBUG] Callback flag sıfırlandı');
+        });
+      });
+    }
+  }
+
   void _onParsingReport() {
     logs.add('Rapor parsing başlıyor...');
 
@@ -372,20 +388,24 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> initializeApp() async {
+    if (_isInitialized) return; // ⭐ Çift initialize önle
+
     try {
       // Testleri veritabanından yükle
       await loadTestsFromLocal();
 
       // Bluetooth bağlantısını başlat (eğer kayıtlı cihaz varsa)
       if (deviceAddress.isNotEmpty) {
-        await tryConnect(deviceAddress, deviceName, timeout: 10); // DÜZELTİLDİ: await eklendi
+        await tryConnect(deviceAddress, deviceName, timeout: 10);
       }
 
+      _isInitialized = true; // ⭐ İşaretle
       print('✅ AppState başarıyla initialize edildi');
       print('📊 Yüklenen test sayısı: ${completedTests.length}');
 
     } catch (e) {
       print('❌ AppState initialize hatası: $e');
+      _isInitialized = false;
     }
   }
 
@@ -491,14 +511,14 @@ class AppState extends ChangeNotifier {
 
 // ✅ YENİ: Ortak kaydetme metodu
   void _saveTestAndTriggerCallback(TestVerisi test) {
+    // ✅ SADECE BURADA callback tetikleyin
     WidgetsBinding.instance.addPostFrameCallback((_) {
       saveTest(test).then((_) {
-        if (onTestCompleted != null) {
-          onTestCompleted!(test);
-        }
+        _triggerTestCompletedCallback(test); // ✅ TEK METOD
       });
     });
   }
+
 
   void startTestMode(int mode) {
     if (mode < 1 || mode > 8) return;
@@ -680,10 +700,9 @@ class AppState extends ChangeNotifier {
       if (valveKey == 'N435') bluetoothCommand = 'K1';    // N435 = K1
       if (valveKey == 'N439') bluetoothCommand = 'K2';    // ESP32'de K2 komutu
 
-      String command = state ? "1" : "0";
-      sendCommand("$bluetoothCommand=$command");
+      sendCommand(bluetoothCommand);
 
-      logs.add('[BLUETOOTH] $bluetoothCommand=$command gönderildi');
+      logs.add('[BLUETOOTH] $bluetoothCommand gönderildi');
 
     } catch (e) {
       logs.add('[HATA] Valf durumu gönderilemedi $valveKey: $e');
@@ -774,6 +793,8 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       print('✅ [DEBUG] Test veritabanına kaydedildi: ${test.testAdi} (ID: $id)');
 
+      // ✅ BURADA CALLBACK TETİKLEMEYİN - dışarıdan tetiklenecek
+
     } catch (e) {
       print('❌ [DEBUG] Test kaydetme hatası: $e');
       _saveToSharedPreferencesAsFallback(test);
@@ -810,31 +831,6 @@ class AppState extends ChangeNotifier {
     await _dbService.deleteAllTests();
     completedTests.clear();
     notifyListeners();
-  }
-
-// Geçiş ve fallback metodları
-  Future<void> _migrateFromSharedPreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('saved_tests') ?? [];
-
-    if (saved.isNotEmpty && completedTests.isEmpty) {
-      print('SharedPreferences verileri veritabanına taşınıyor...');
-
-      for (String jsonStr in saved) {
-        try {
-          final test = TestVerisi.fromJson(Map<String, dynamic>.from(json.decode(jsonStr)));
-          await _dbService.insertTest(test);
-        } catch (e) {
-          print('Geçiş hatası: $e');
-        }
-      }
-
-      // Taşındıktan sonra temizle
-      await prefs.remove('saved_tests');
-
-      // Yeniden yükle
-      completedTests = await _dbService.getTests();
-    }
   }
 
   Future<void> _saveToSharedPreferencesAsFallback(TestVerisi test) async {
@@ -1243,10 +1239,7 @@ class AppState extends ChangeNotifier {
       _currentVites = newGear;
       selectedGear = newGear;
 
-      // ✅ DÜZELTME: Test sırasında da valfleri güncelle
-      if (!isTestModeActive || isTesting) { // Test sırasında valf güncelle
-        updateValvesByGear(newGear);
-      }
+      updateValvesByGear(newGear);
 
       // K1K2 modu aktifse valf durumlarını güncelle
       if (isK1K2Mode) {
@@ -1451,15 +1444,8 @@ class AppState extends ChangeNotifier {
       // ✅ SONRA listeyi güncelle
       completedTests.insert(0, test);
 
-      // ✅ EN SON callback tetikle
-      if (onTestCompleted != null) {
-        print('[DEBUG] onTestCompleted callback tetikleniyor');
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          onTestCompleted!(test);
-        });
-      } else {
-        print('[❌ DEBUG] onTestCompleted callback NULL!');
-      }
+      // ✅ TEK YERDEN CALLBACK TETİKLE
+      _triggerTestCompletedCallback(test);
 
       // ✅ UI'ı güncelle
       notifyListeners();
@@ -1567,27 +1553,6 @@ class AppState extends ChangeNotifier {
     }
 
     return scores;
-  }
-
-  int _parsePuanFromCollectedData() {
-    if (_deviceScores.containsKey('total')) {
-      return _deviceScores['total']!.round();
-    }
-
-    // Loglardan puanı bulmaya çalış
-    for (String log in logs.reversed) {
-      final mekatronikMatch = RegExp(r'TOPLAM PUAN:\s*(\d+)/100').firstMatch(log);
-      if (mekatronikMatch != null) {
-        return int.parse(mekatronikMatch.group(1)!);
-      }
-
-      final genelMatch = RegExp(r'GENEL PUAN:\s*([\d.]+)/100').firstMatch(log);
-      if (genelMatch != null) {
-        return double.parse(genelMatch.group(1)!).round();
-      }
-    }
-
-    return 0; // Varsayılan puan
   }
 
   // Cihazdan puan iste
@@ -1704,43 +1669,12 @@ class AppState extends ChangeNotifier {
       minBasinc: _currentMinPressure,
       maxBasinc: _currentMaxPressure,
       toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
-      puan: 0, // İptal edildiği için 0 puan
+      puan: 0,
       sonuc: "İPTAL EDİLDİ",
     );
-
-    // Testi kaydet ve callback tetikle
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      saveTest(test).then((_) {
-        if (onTestCompleted != null) {
-          onTestCompleted!(test);
-        }
-      });
-    });
+    // ✅ TEK METOD KULLAN
+    _saveTestAndTriggerCallback(test);
   }
-
-  Future<void> _saveFullTest() async {
-    final toplamPuan = _deviceScores['total'] ?? _calculateScoreFromFazScores();
-    final sonuc = MekatronikPuanlama.durum(toplamPuan.round());
-
-    final test = TestVerisi(
-      testAdi: _currentTestName.isNotEmpty ? _currentTestName : "Tam Test",
-      tarih: DateTime.now(),
-      minBasinc: _currentMinPressure,
-      maxBasinc: _currentMaxPressure,
-      toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
-      puan: toplamPuan.round(),
-      sonuc: sonuc,
-    );
-
-    await saveTest(test);
-
-    // ✅ CRITICAL: Callback'i burada tetikle
-    if (onTestCompleted != null) {
-      logs.add('onTestCompleted callback tetikleniyor: ${test.testAdi}');
-      onTestCompleted!(test);
-    }
-  }
-
   void _resetSystemAfterTest() {
     pumpOn = false;
     gear = 'BOŞ';
@@ -1749,19 +1683,6 @@ class AppState extends ChangeNotifier {
 
     // ✅ YENİ: Timer'ları temizle
     _resetAllTimers();
-
-    // ✅ YENİ: Test sonunda _lastParsedTest'i sıfırla (opsiyonel)
-    // _lastParsedTest = null;
-  }
-
-  void forceValveUpdate() {
-    if (!isConnected || mockMode) return;
-
-    // Tüm valf durumlarını Bluetooth'tan tekrar iste
-    sendCommand("STATUS");
-
-    // UI'ı güncelle
-    notifyListeners();
   }
 
 // Manuel valf değişikliğinde çağırın
@@ -1911,22 +1832,6 @@ class AppState extends ChangeNotifier {
       operationTime = '${_operationSeconds}sn';
       notifyListeners();
     });
-  }
-
-  void setValveState(String valve, bool state) {
-    if (!valveStates.containsKey(valve)) return;
-
-    valveStates[valve] = state;
-
-    // Bluetooth komutunu gönder
-    String bluetoothCommand = valve;
-    if (valve == 'N436') bluetoothCommand = 'N36';
-    if (valve == 'N440') bluetoothCommand = 'N40';
-
-    sendCommand(state ? bluetoothCommand : bluetoothCommand);
-
-    enforceK1K2Rules();
-    notifyListeners();
   }
 
   void setK1K2Mode(bool value) {

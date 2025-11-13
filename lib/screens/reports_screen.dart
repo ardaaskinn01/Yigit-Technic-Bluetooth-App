@@ -5,12 +5,77 @@ import '../providers/app_state.dart';
 import 'rapor_detay_ekrani.dart';
 import 'package:intl/intl.dart';
 
-class RaporlarEkrani extends StatelessWidget {
+class RaporlarEkrani extends StatefulWidget {
   const RaporlarEkrani({super.key});
+
+  @override
+  State<RaporlarEkrani> createState() => _RaporlarEkraniState();
+}
+
+class _RaporlarEkraniState extends State<RaporlarEkrani> {
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    final app = Provider.of<AppState>(context, listen: false);
+
+    // Eğer testler yüklenmemişse yeniden yükle
+    if (app.completedTests.isEmpty) {
+      await app.loadTestsFromLocal();
+    }
+
+    setState(() {
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = Provider.of<AppState>(context);
+
+    if (_isLoading) {
+      return Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          title: const Text(
+            'Raporlar',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+            ),
+          ),
+          centerTitle: true,
+        ),
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF003366), Color(0xFF004C99), Color(0xFF001F3F)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: Colors.white),
+                SizedBox(height: 20),
+                Text('Raporlar yükleniyor...',
+                    style: TextStyle(color: Colors.white)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     // ✅ GELİŞTİRİLMİŞ DEBUG: Detaylı bilgi
     print('📋 [REPORTS DEBUG] =================================');
