@@ -64,7 +64,8 @@ class AppState extends ChangeNotifier {
   double faz4PompaSuresi = 0;
   String autoCycleMode = '0';
   Timer? _testTimeoutTimer;
-  Duration _testTimeout = Duration(minutes: 25); // 25 dakika timeout
+  Duration _testTimeout = Duration(minutes: 30); // 25 dakikadan 30 dakikaya
+  final Duration _stateTimeout = Duration(minutes: 3); // 2 dakikadan 3 dakikaya // 25 dakika timeout
   Map<String, double> _deviceScores = {};
   Completer<void>? _testCompletionCompleter;
   bool _waitingForReport = false;
@@ -89,7 +90,6 @@ class AppState extends ChangeNotifier {
 
   // State geçişleri için timer
   Timer? _stateTimeoutTimer;
-  final Duration _stateTimeout = Duration(minutes: 24); // State timeout
 
   // Önceki state (geri dönüş için)
   TestState? _previousState;
@@ -291,9 +291,16 @@ class AppState extends ChangeNotifier {
   void _onTestStarting() {
     logs.add('Test başlatılıyor...');
     _resetTestVariables();
-    _startTestTimer(); // ✅ Timer'ı burada başlat
+    _startTestTimer();
 
-    // State timeout başlat
+    // ✅ YENİ: Hemen "running" state'e geçiş yap
+    // Çünkü logda testin hemen başladığını görüyoruz
+    Future.delayed(Duration(milliseconds: 500), () {
+      if (_currentTestState == TestState.starting) {
+        _setTestState(TestState.running, message: 'Test otomatik başlatıldı');
+      }
+    });
+
     _startStateTimeout();
   }
 
@@ -427,18 +434,23 @@ class AppState extends ChangeNotifier {
     logs.add('[STATE TIMEOUT] ${_stateToString(_currentTestState)} state\'i timeouta uğradı');
 
     switch (_currentTestState) {
+      case TestState.starting:
+      // ✅ YENİ: Starting timeout'ta testin gerçekten başlayıp başlamadığını kontrol et
+        if (_elapsedTestSeconds > 10) {
+          // Test süresi ilerliyorsa, test başlamış demektir
+          logs.add('Test başladı ama state güncellenmedi - running state\'ine zorla geç');
+          _setTestState(TestState.running, message: 'Timeout recovery');
+        } else {
+          logs.add('Test başlatma timeout');
+          _setTestState(TestState.error, message: 'Başlatma timeout');
+          _saveErrorTest('Başlatma timeout');
+        }
+        break;
+
       case TestState.waitingReport:
         logs.add('Rapor timeout - manuel isteniyor');
         _requestDeviceScore();
-
-        // ✅ DÜZELTİLDİ: Timeout durumunda da testi kaydet
         _saveTimeoutTest();
-        break;
-
-      case TestState.starting:
-        logs.add('Test başlatma timeout');
-        _setTestState(TestState.error, message: 'Başlatma timeout');
-        _saveErrorTest('Başlatma timeout');
         break;
 
       default:
@@ -663,12 +675,10 @@ class AppState extends ChangeNotifier {
   void _sendSingleValveStateToBluetooth(String valveKey, bool state) {
     try {
       String bluetoothCommand = valveKey;
-
-      // Bluetooth komut eşleştirmesi
       if (valveKey == 'N436') bluetoothCommand = 'N36';
       if (valveKey == 'N440') bluetoothCommand = 'N40';
-      if (valveKey == 'K1') bluetoothCommand = 'K1';    // ESP32'de K1 komutu
-      if (valveKey == 'K2') bluetoothCommand = 'K2';    // ESP32'de K2 komutu
+      if (valveKey == 'N435') bluetoothCommand = 'K1';    // N435 = K1
+      if (valveKey == 'N439') bluetoothCommand = 'K2';    // ESP32'de K2 komutu
 
       String command = state ? "1" : "0";
       sendCommand("$bluetoothCommand=$command");
@@ -852,7 +862,7 @@ class AppState extends ChangeNotifier {
     if (isTesting) return;
 
     _setTestState(TestState.starting, message: testAdi);
-    _currentPhase = TestPhase.phase0; // ✅ FAZ 0'dan başlıyoruz
+    _currentPhase = TestPhase.phase0;
     _resetAllTimers();
     _resetTestVariables();
 
@@ -860,6 +870,9 @@ class AppState extends ChangeNotifier {
       _currentTestName = testAdi;
       _resetTestVariables();
       _resetValvesForTestStart();
+
+      // ✅ KRİTİK: Bluetooth listener'ı HEMEN başlat
+      _startBluetoothTestListener();
 
       _setTestState(TestState.running);
       _startTestTimer();
@@ -914,8 +927,18 @@ class AppState extends ChangeNotifier {
   Future<void> _runBluetoothTestWithTimeout(String testAdi, DateTime startTime) async {
     _testCompletionCompleter = Completer<void>();
 
-    // Testi starting state'ine al
-    _setTestState(TestState.starting, message: 'Timeout timer başlatıldı');
+    // ✅ YENİ: Test komutunu gönderdikten hemen sonra running state'e geç
+    _setTestState(TestState.running, message: 'Test komutu gönderildi');
+
+    _startBluetoothTestListener();
+    sendCommand("TEST");
+
+    // ✅ YENİ: Test ismini de gönder (logda görüldüğü gibi)
+    Future.delayed(Duration(milliseconds: 100), () {
+      sendCommand(testAdi);
+    });
+
+    logs.add("TEST komutu ve ismi gönderildi - State: ${_stateToString(_currentTestState)}");
 
     _testTimeoutTimer = Timer(_testTimeout, () {
       if (!_testCompletionCompleter!.isCompleted) {
@@ -925,11 +948,6 @@ class AppState extends ChangeNotifier {
         );
       }
     });
-
-    _startBluetoothTestListener();
-    sendCommand("TEST");
-
-    logs.add("TEST komutu gönderildi - State: ${_stateToString(_currentTestState)}");
 
     try {
       await _testCompletionCompleter!.future;
@@ -960,10 +978,24 @@ class AppState extends ChangeNotifier {
   void _handleBluetoothTestMessage(String message) {
     print('[BLUETOOTH_TEST] Mesaj alındı: $message');
 
+    // ✅ YENİ: Test tamamlanma mesajını kontrol et
+    if (message.contains(">>> Test protokolu tamamlandi! <<<") ||
+        message.contains("TEST RAPORU:") ||
+        message.contains("MEKATRONİK SAĞLIK RAPORU")) {
+
+      logs.add('🎯 TEST TAMAMLANDI MESAJI YAKALANDI');
+
+      // Eğer test hala running state'inde ise, completed state'e geç
+      if (_currentTestState == TestState.running ||
+          _currentTestState == TestState.starting) {
+        _setTestState(TestState.completed, message: 'Test otomatik tamamlandı');
+      }
+    }
+
     // State machine'e göre mesajı işle
     _processMessageBasedOnState(message);
 
-    // Orijinal listener callback'i (eğer varsa)
+    // Orijinal listener callback'i
     if (onDeviceReportReceived != null) {
       onDeviceReportReceived!(message);
     }
@@ -997,7 +1029,18 @@ class AppState extends ChangeNotifier {
   }
 
   void _processRunningStateMessage(String message) {
-    // ✅ YENİ: Atlanan faz mesajlarını tespit et
+    // ✅ YENİ: Test başlatma onay mesajlarını yakala
+    if (message.contains("FAZ 0: Pompa aciliyor")) {
+
+      logs.add('🔍 Test başlatma onayı alındı - state running olarak güncelleniyor');
+
+      // Eğer hala starting state'inde isek, running'e geç
+      if (_currentTestState == TestState.starting) {
+        _setTestState(TestState.running, message: 'Test başlatma onaylandı');
+      }
+    }
+
+    // Mevcut faz geçiş işlemleri...
     if (message.contains("atlandi!") || message.contains("atlandı!")) {
       logs.add('🔍 Atlanan faz mesajı tespit edildi');
       _handlePhaseTransition(message);
@@ -1200,18 +1243,16 @@ class AppState extends ChangeNotifier {
       _currentVites = newGear;
       selectedGear = newGear;
 
-      // Test modu aktif değilse valfleri güncelle
-      if (!isTestModeActive || mockMode) {
+      // ✅ DÜZELTME: Test sırasında da valfleri güncelle
+      if (!isTestModeActive || isTesting) { // Test sırasında valf güncelle
         updateValvesByGear(newGear);
       }
 
-      // ✅ YENİ: K1K2 modu aktifse valf durumlarını güncelle
+      // K1K2 modu aktifse valf durumlarını güncelle
       if (isK1K2Mode) {
         _updateK1K2ValveStates();
         _sendAllValveStatesToBluetooth();
       }
-
-      logs.add('Vites değişti: $newGear - K1K2: $isK1K2Mode');
     }
   }
 
@@ -1730,16 +1771,16 @@ class AppState extends ChangeNotifier {
     bool newState = !(valveStates[key] ?? false);
     valveStates[key] = newState;
 
+    // ✅ DEBUG: Hangi valfin toggle edildiğini logla
+    logs.add('[DEBUG] ToggleValve: $key = $newState (K1K2: $isK1K2Mode)');
+
     // Bluetooth komutunu gönder
     _sendSingleValveStateToBluetooth(key, newState);
 
     // K1/K2 kurallarını uygula
     enforceK1K2Rules();
 
-    // Hemen güncelle
     notifyListeners();
-
-    logs.add('Valf değiştirildi: $key = $newState (K1K2 Mod: $isK1K2Mode)');
   }
 
   void startSokmeModu() {
@@ -1889,7 +1930,7 @@ class AppState extends ChangeNotifier {
   }
 
   void setK1K2Mode(bool value) {
-    if (isK1K2Mode == value) return; // Aynı değerse işlem yapma
+    if (isK1K2Mode == value) return;
 
     isK1K2Mode = value;
 
@@ -1902,17 +1943,26 @@ class AppState extends ChangeNotifier {
       logs.add('K1K2 Modu: Kapatıldı (K1K2OFF)');
     }
 
-    // ✅ KRİTİK: Valf durumlarını güncelle ve UI'ı bildir
-    _updateK1K2ValveStates();
+    // ✅ KRİTİK: Tüm valf durumlarını güncelle
+    _updateAllValveStatesForK1K2();
     _sendAllValveStatesToBluetooth();
 
-    // ✅ UI'ı hemen güncelle
     notifyListeners();
+  }
 
-    // ✅ 500ms sonra tekrar güncelle (sync için)
-    Future.delayed(Duration(milliseconds: 500), () {
-      forceValveUpdate();
+// YENİ METOD: K1/K2 mod değişikliğinde tüm valfleri güncelle
+  void _updateAllValveStatesForK1K2() {
+    // Mevcut vitese göre valf durumlarını yeniden hesapla
+    Map<String, bool> newStates = _calculateValveStatesForCurrentGear();
+
+    // Değişen valfleri güncelle
+    newStates.forEach((key, newState) {
+      if (valveStates[key] != newState) {
+        valveStates[key] = newState;
+      }
     });
+
+    enforceK1K2Rules();
   }
 
   void _updateK1K2ValveStates() {

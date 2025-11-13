@@ -9,6 +9,7 @@ class ValveStatusPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final states = app.valveStates;
+    final isK1K2Mode = app.isK1K2Mode; // K1K2 mod durumunu al
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -35,14 +36,14 @@ class ValveStatusPanel extends StatelessWidget {
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
             children: [
-              _valveItem('N435', 'K1', states['N435'] ?? false),
-              _valveItem('N438', 'Vites 6-R', states['N438'] ?? false),
-              _valveItem('N434', 'Vites 5-7', states['N434'] ?? false),
-              _valveItem('N440', 'Basınç-2', states['N440'] ?? false),
-              _valveItem('N436', 'Basınç-1', states['N436'] ?? false),
-              _valveItem('N439', 'K2', states['N439'] ?? false),
-              _valveItem('N433', 'Vites 1-3', states['N433'] ?? false),
-              _valveItem('N437', 'Vites 2-4', states['N437'] ?? false),
+              _valveItem('N435', 'K1', states['N435'] ?? false, isK1K2Mode),
+              _valveItem('N438', 'Vites 6-R', states['N438'] ?? false, isK1K2Mode),
+              _valveItem('N434', 'Vites 5-7', states['N434'] ?? false, isK1K2Mode),
+              _valveItem('N440', 'Basınç-2', states['N440'] ?? false, isK1K2Mode),
+              _valveItem('N436', 'Basınç-1', states['N436'] ?? false, isK1K2Mode),
+              _valveItem('N439', 'K2', states['N439'] ?? false, isK1K2Mode),
+              _valveItem('N433', 'Vites 1-3', states['N433'] ?? false, isK1K2Mode),
+              _valveItem('N437', 'Vites 2-4', states['N437'] ?? false, isK1K2Mode),
             ],
           ),
         ],
@@ -50,9 +51,19 @@ class ValveStatusPanel extends StatelessWidget {
     );
   }
 
-  Widget _valveItem(String name, String func, bool isActive) {
+  Widget _valveItem(String name, String func, bool isActive, bool isK1K2Mode) {
+    Color statusColor;
+    if (name == 'N435' || name == 'N439') {
+      // K1/K2 valfleri - mod kapalıysa gri göster
+      statusColor = isK1K2Mode
+          ? (isActive ? Colors.greenAccent : Colors.grey)
+          : Colors.grey.withOpacity(0.5);
+    } else {
+      statusColor = isActive ? Colors.greenAccent : Colors.grey;
+    }
+
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 150), // Daha kısa animasyon
+      duration: const Duration(milliseconds: 150),
       curve: Curves.easeInOut,
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -67,13 +78,12 @@ class ValveStatusPanel extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Durum göstergesi - daha stabil
           Container(
             width: 10,
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isActive ? Colors.greenAccent : Colors.grey,
+              color: statusColor,
             ),
           ),
           const SizedBox(width: 8),

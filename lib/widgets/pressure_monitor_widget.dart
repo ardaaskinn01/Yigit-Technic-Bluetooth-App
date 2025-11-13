@@ -24,7 +24,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
   double _currentScrollPosition = 0.0;
   bool _isScrolling = false;
   final int _maxHistoryPoints = 2250;
-  final int _visiblePoints = 450;
+  final int _visiblePoints = 150;
 
   // 🆕 YENİ: Ölçeklendirme fonksiyonu
   double _transformY(double originalY) {
