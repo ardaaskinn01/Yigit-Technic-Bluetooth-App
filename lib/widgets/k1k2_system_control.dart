@@ -14,6 +14,29 @@ class K1K2SystemControl extends StatefulWidget {
 }
 
 class _K1K2SystemControlState extends State<K1K2SystemControl> {
+  bool _isProcessing = false; // ⭐ YENİ: İşlem flag'i
+
+  void _handleValveToggle(String actualValveKey, bool isK1K2ModeEnabled) async {
+    if (_isProcessing) return; // ⭐ Çoklu tıklamayı önle
+
+    _isProcessing = true;
+
+    try {
+      if (!isK1K2ModeEnabled) {
+        widget.app.setK1K2Mode(true);
+        await Future.delayed(Duration(milliseconds: 300));
+      }
+
+      if (widget.app.isK1K2Mode) {
+        widget.app.toggleValve(actualValveKey);
+        print('[DEBUG] ToggleValve çağrıldı: $actualValveKey'); // ⭐ Debug
+      }
+
+      await Future.delayed(Duration(milliseconds: 200)); // ⭐ Minimum bekleme
+    } finally {
+      _isProcessing = false;
+    }
+  }
   @override
   Widget build(BuildContext context) {
     final isK1K2Active = widget.app.isK1K2Mode;
@@ -106,20 +129,12 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
 
     return ElevatedButton(
       onPressed: () {
-        if (!isK1K2ModeEnabled) {
-          // K1K2 modu kapalıysa önce modu aç
-          widget.app.setK1K2Mode(true);
-          // Kısa bekleme sonrası valfi toggle et
-          Future.delayed(Duration(milliseconds: 500), () {
-            if (widget.app.isK1K2Mode) {
-              // Doğru valve key ile toggle et
-              widget.app.toggleValve(actualValveKey);
-            }
-          });
-        } else {
-          // Doğrudan toggle et
-          widget.app.toggleValve(actualValveKey);
+        // ⭐ YENİ: Aynı state'deki butona basmayı önle
+        if (actualState == (valve == 'K1')) {
+          return; // Zaten istenen state'de
         }
+
+        _handleValveToggle(actualValveKey, isK1K2ModeEnabled);
       },
       style: ElevatedButton.styleFrom(
         backgroundColor: backgroundColor,

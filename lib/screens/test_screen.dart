@@ -54,16 +54,9 @@ class _TestScreenState extends State<TestScreen> {
   void _onTestCompleted(TestVerisi test) {
     print('[DEBUG] _onTestCompleted called: ${test.testAdi}');
 
-    // ✅ ÇOK ÖNEMLİ: Aynı test için tekrarı önle
-    if (_lastCompletedTest?.testAdi == test.testAdi &&
-        _lastCompletedTest!.tarih.difference(test.tarih).inSeconds.abs() < 5) {
-      print('[DEBUG] Aynı test zaten işlendi, atlanıyor');
-      return;
-    }
-
-    // ✅ Dialog kontrolü
-    if (_isDialogShowing) {
-      print('[DEBUG] Dialog zaten açık, atlanıyor');
+    // ✅ GÜÇLENDİRİLMİŞ ÇAKIŞMA KONTROLÜ
+    if (_isDuplicateTest(test) || _isDialogShowing) {
+      print('[DEBUG] Çakışma önlendi - Duplicate: ${_isDuplicateTest(test)}, Dialog: $_isDialogShowing');
       return;
     }
 
@@ -73,6 +66,16 @@ class _TestScreenState extends State<TestScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showDeviceResultDialog(test);
     });
+  }
+
+  bool _isDuplicateTest(TestVerisi test) {
+    if (_lastCompletedTest == null) return false;
+
+    final isSameName = test.testAdi == _lastCompletedTest!.testAdi;
+    final timeDiff = test.tarih.difference(_lastCompletedTest!.tarih).inSeconds.abs();
+    final isRecent = timeDiff < 8; // 8 saniye
+
+    return isSameName && isRecent;
   }
 
   // ✅ YENİ: Manuel olarak son testi göster

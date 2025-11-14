@@ -24,10 +24,8 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
   Future<void> _loadInitialData() async {
     final app = Provider.of<AppState>(context, listen: false);
 
-    // Eğer testler yüklenmemişse yeniden yükle
-    if (app.completedTests.isEmpty) {
-      await app.loadTestsFromLocal();
-    }
+    // ⭐ HER ZAMAN veritabanından taze veri yükle
+    await app.loadTestsFromLocal();
 
     setState(() {
       _isLoading = false;

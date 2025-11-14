@@ -27,6 +27,10 @@ class DatabaseService {
     );
   }
 
+  Future<void> createDatabase(Database db, int version) async {
+    await _createDatabase(db, version);
+  }
+
   Future<void> _createDatabase(Database db, int version) async {
     print('[DATABASE] Tablo oluşturuluyor...');
     await db.execute('''
@@ -101,6 +105,18 @@ class DatabaseService {
     } catch (e) {
       print('[DATABASE] ❌ Yükleme hatası: $e');
       return [];
+    }
+  }
+
+  Future<void> recreateTable() async {
+    final db = await database;
+    try {
+      await db.execute('DROP TABLE IF EXISTS tests');
+      await _createDatabase(db, 1);
+      print('[DATABASE] Tablo başarıyla yeniden oluşturuldu');
+    } catch (e) {
+      print('[DATABASE] ❌ Tablo yeniden oluşturma hatası: $e');
+      rethrow;
     }
   }
 

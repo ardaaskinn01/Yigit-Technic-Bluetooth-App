@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:sqflite/sqflite.dart';
 import 'providers/app_state.dart';
 import 'screens/main_home.dart';
 import 'screens/reports_screen.dart';
@@ -21,24 +23,26 @@ void main() async {
   await appState.initializeApp(); // ⭐ BU SATIRI EKLEYİN
 
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => appState),
-      ],
+    Provider<AppState>.value(
+      value: appState,
       child: const MyApp(),
     ),
   );
 }
 
-// ✅ Veritabanı başlatma (basitleştirilmiş)
+// ✅ Veritabanı başlatma (DÜZELTİLMİŞ)
 Future<void> _initializeDatabase() async {
   try {
     final dbService = DatabaseService();
     await dbService.database; // Database'i aç
 
-    // Tablo var mı kontrol et
+    // Tablo yoksa kontrol et
     final tableExists = await dbService.isTableExists();
-    print('✅ SQLite veritabanı başlatıldı - Tablo mevcut: $tableExists');
+    if (!tableExists) {
+      print('⚠️ Tablo bulunamadı, yeniden oluşturulacak...');
+      // ⭐ DÜZELTİLDİ: Sadece veritabanını yeniden başlat
+      await dbService.recreateTable(); // Bu metodu DatabaseService'e ekleyeceğiz
+    }
 
     // Basit test sayısı kontrolü
     final tests = await dbService.getTests();
@@ -46,6 +50,21 @@ Future<void> _initializeDatabase() async {
 
   } catch (e) {
     print('❌ Veritabanı başlatma hatası: $e');
+    // Hata durumunda database'i resetle
+    await _resetDatabase();
+  }
+}
+
+// ⭐ YENİ: Database resetleme fonksiyonu
+Future<void> _resetDatabase() async {
+  try {
+    final dbService = DatabaseService();
+    final db = await dbService.database;
+    await db.close();
+    await deleteDatabase(join(await getDatabasesPath(), 'mekatronik_tests.db'));
+    print('✅ Veritabanı resetlendi');
+  } catch (e) {
+    print('❌ Veritabanı resetleme hatası: $e');
   }
 }
 
@@ -93,6 +112,8 @@ class MyApp extends StatelessWidget {
         '/reports': (_) => const RaporlarEkrani(),
         '/settings': (_) => const SettingsScreen(),
       },
+      // ⭐ YENİ: Navigator observer ekleyerek route değişikliklerini takip et
+      navigatorObservers: [RouteObserver<ModalRoute<void>>()],
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
