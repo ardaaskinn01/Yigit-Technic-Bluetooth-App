@@ -189,14 +189,12 @@ class _TestScreenState extends State<TestScreen> {
         final currentPhase = app.currentPhase;
         final phaseName = _getPhaseName(currentPhase);
         // ✅ DÜZELTİLDİ: Tüm aktif test durumlarını kontrol et
-        final isRunning = app.isTesting ||
-            app.currentTestState == TestState.starting ||
+        final isRunning = app.currentTestState == TestState.starting ||
             app.currentTestState == TestState.running ||
-            app.currentTestState == TestState.paused ||
             app.currentTestState == TestState.waitingReport ||
             app.currentTestState == TestState.parsingReport;
 
-        final isPaused = app.isPaused;
+        final isPaused = app.currentTestState == TestState.paused;
         return Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(

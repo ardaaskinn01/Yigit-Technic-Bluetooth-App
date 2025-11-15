@@ -17,26 +17,35 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
   bool _isProcessing = false; // ⭐ YENİ: İşlem flag'i
 
   void _handleValveToggle(String actualValveKey, bool isK1K2ModeEnabled) async {
-    if (_isProcessing) return; // ⭐ Çoklu tıklamayı önle
-
+    if (_isProcessing) return;
     _isProcessing = true;
 
     try {
-      if (!isK1K2ModeEnabled) {
-        widget.app.setK1K2Mode(true);
-        await Future.delayed(Duration(milliseconds: 300));
-      }
-
-      if (widget.app.isK1K2Mode) {
+      // ❌ ESKİ: Otomatik mod açma - KALDIR
+      // ✅ YENİ: Sadece toggle işlemi
+      if (isK1K2ModeEnabled) {
         widget.app.toggleValve(actualValveKey);
-        print('[DEBUG] ToggleValve çağrıldı: $actualValveKey'); // ⭐ Debug
+        print('[DEBUG] ToggleValve: $actualValveKey');
+      } else {
+        // K1K2 modu kapalıysa sadece modu aç
+        widget.app.setK1K2Mode(true);
       }
 
-      await Future.delayed(Duration(milliseconds: 200)); // ⭐ Minimum bekleme
+      await Future.delayed(Duration(milliseconds: 200));
     } finally {
       _isProcessing = false;
     }
   }
+
+  bool _shouldKValveBeActiveForGear(String valve, String gear) {
+    if (valve == 'K1') {
+      return ['1', '3', '5', '7'].contains(gear); // K1: 1,3,5,7. vitesler
+    } else if (valve == 'K2') {
+      return ['2', '4', '6', 'R'].contains(gear); // K2: 2,4,6,R vitesler
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isK1K2Active = widget.app.isK1K2Mode;
@@ -109,7 +118,7 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
   }
 
   Widget _buildValveButton(String valve, bool isActive, bool isK1K2ModeEnabled) {
-    // Butonun gerçek valve key'ini belirle
+    // Butonun gerçek valve key'ini belirle - SADECE N435 ve N439 kullan
     String actualValveKey = valve == 'K1' ? 'N435' : 'N439';
     bool actualState = widget.app.valveStates[actualValveKey] ?? false;
 
@@ -129,7 +138,10 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
 
     return ElevatedButton(
       onPressed: () {
-        // ⭐ YENİ: Aynı state'deki butona basmayı önle
+        // K1K2 modu kapalıysa buton pasif
+        if (!isK1K2ModeEnabled) return;
+
+        // Mevcut durumu kontrol et
         if (actualState == (valve == 'K1')) {
           return; // Zaten istenen state'de
         }
