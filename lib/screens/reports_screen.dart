@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../models/test_verisi.dart';
 import '../providers/app_state.dart';
@@ -24,12 +25,24 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
   Future<void> _loadInitialData() async {
     final app = Provider.of<AppState>(context, listen: false);
 
-    // ⭐ HER ZAMAN veritabanından taze veri yükle
-    await app.loadTestsFromLocal();
+    try {
+      // ✅ AppState'in initialize olmasını bekle
+      if (!app.isInitialized) {
+        await app.initializeApp();
+      }
 
-    setState(() {
-      _isLoading = false;
-    });
+      // ✅ Doğrudan testleri yükle
+      await app.loadTestsFromLocal();
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('❌ Rapor yükleme hatası: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -75,26 +88,28 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
       );
     }
 
-    // ✅ GELİŞTİRİLMİŞ DEBUG: Detaylı bilgi
-    print('📋 [REPORTS DEBUG] =================================');
-    print('   - Toplam test sayısı: ${app.completedTests.length}');
-    print('   - Veritabanı test sayısı: ${app.completedTests.length}');
+    // ✅ GELİŞTİRİLMİŞ DEBUG: Detaylı bilgi - LOG CONSOLE'A EKLENDİ
+    app.logs.add('📋 [REPORTS DEBUG] =================================');
+    app.logs.add('   - Toplam test sayısı: ${app.completedTests.length}');
+    app.logs.add('   - Veritabanı test sayısı: ${app.completedTests.length}');
 
     // Testleri ID'ye göre sırala ve debug et
-    final sortedTests =
-    app.completedTests.toList()..sort((a, b) => b.tarih.compareTo(a.tarih));
+    final sortedTests = app.completedTests.toList()..sort((a, b) => b.tarih.compareTo(a.tarih));
 
-    print('   - Sıralanmış testler:');
-    for (int i = 0; i < sortedTests.length; i++) {
-      print(
-        '     ${i + 1}. ${sortedTests[i].testAdi} - ${sortedTests[i].tarih} - ID: ${sortedTests[i].id}',
+    app.logs.add('   - Sıralanmış testler:');
+    for (int i = 0; i < sortedTests.length && i < 5; i++) { // İlk 5 testi göster
+      app.logs.add(
+        '     ${i + 1}. ${sortedTests[i].testAdi} - ${DateFormat('dd.MM.yyyy HH:mm').format(sortedTests[i].tarih)} - ID: ${sortedTests[i].id}',
       );
+    }
+    if (sortedTests.length > 5) {
+      app.logs.add('     ... ve ${sortedTests.length - 5} test daha');
     }
 
     // Testleri ters çevir (en son test en yukarıda)
-    final reversedTests = sortedTests; // Zaten sıralı, ters çevirmeye gerek yok
-    print('📋 [REPORTS] Gösterilecek test sayısı: ${reversedTests.length}');
-    print('📋 [REPORTS DEBUG] =================================');
+    final reversedTests = sortedTests;
+    app.logs.add('📋 [REPORTS] Gösterilecek test sayısı: ${reversedTests.length}');
+    app.logs.add('📋 [REPORTS DEBUG] =================================');
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -128,7 +143,7 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Yenile',
             onPressed: () async {
-              print('🔄 Manuel yenileme başlatıldı');
+              app.logs.add('🔄 Manuel yenileme başlatıldı');
 
               // Veritabanından yeniden yükle
               await app.loadTestsFromLocal();
@@ -168,7 +183,7 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
               children: [
                 ElevatedButton(
                   onPressed: () async {
-                    print('🔄 Testleri yeniden yükle butonu tıklandı');
+                    app.logs.add('🔄 Testleri yeniden yükle butonu tıklandı');
                     await app.loadTestsFromLocal();
 
                     if (context.mounted) {
@@ -207,9 +222,7 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
           ),
           itemBuilder: (context, index) {
             final t = reversedTests[index];
-            print(
-              '📋 [REPORTS] Gösterilen test: ${t.testAdi} - ${t.tarih}',
-            );
+            app.logs.add('📋 [REPORTS] Gösterilen test: ${t.testAdi} - ${DateFormat('dd.MM.yyyy HH:mm').format(t.tarih)}');
             return _buildTestItem(context, t, app);
           },
         ),
@@ -220,8 +233,11 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
   // ✅ DÜZELTİLDİ: Veritabanı bilgisi göster - async metod
   void _showDatabaseInfo(BuildContext context, AppState app) async {
     try {
+      app.logs.add('📊 Veritabanı bilgisi alınıyor...');
       final dbInfo = await app.getDatabaseInfo();
       final tableExists = await app.isTableExists();
+
+      app.logs.add('📊 Veritabanı bilgisi alındı: ${dbInfo['totalTests']} test');
 
       if (context.mounted) {
         showDialog(
@@ -242,6 +258,8 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
                 Text('UI Liste: ${app.completedTests.length} test'),
                 const SizedBox(height: 10),
                 Text('Tablo Var Mı: ${tableExists ? "EVET" : "HAYIR"}'),
+                const SizedBox(height: 10),
+                Text('Tablolar: ${dbInfo['tables'].join(', ')}'),
               ],
             ),
             actions: [
@@ -254,7 +272,7 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
         );
       }
     } catch (e) {
-      print('❌ Veritabanı bilgisi alma hatası: $e');
+      app.logs.add('❌ Veritabanı bilgisi alma hatası: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -453,6 +471,7 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
       TestVerisi test,
       ) async {
     try {
+      app.logs.add('🗑️ Test siliniyor: ${test.testAdi} (ID: ${test.id})');
       await app.deleteTest(test);
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -463,6 +482,7 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
         ),
       );
     } catch (e) {
+      app.logs.add('❌ Test silme hatası: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Silme hatası: $e'),
@@ -474,16 +494,19 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
 
   void _deleteAllTests(BuildContext context, AppState app) async {
     try {
-      await app.clearTests();
+      app.logs.add('🗑️ Tüm testler siliniyor...');
+      app.clearTests();
+      app.logs.add('✅ Tüm testler silindi');
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Tüm raporlar silindi'),
           backgroundColor: Colors.red,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
     } catch (e) {
+      app.logs.add('❌ Tüm testleri silme hatası: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Silme hatası: $e'),

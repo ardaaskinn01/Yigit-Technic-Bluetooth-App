@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/test_verisi.dart';
@@ -14,19 +15,58 @@ class TestScreen extends StatefulWidget {
 
 class _TestScreenState extends State<TestScreen> {
   final TextEditingController _nameController = TextEditingController();
-  late AppState _app;
   bool _isDialogShowing = false;
-  TestVerisi? _lastCompletedTest; // ✅ YENİ: Son tamamlanan testi sakla
+  TestVerisi? _lastCompletedTest;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _app = Provider.of<AppState>(context, listen: false);
+      _setupCallbacks();
+    });
+  }
 
-      // ✅ CALLBACK'İ GÜVENLİ ŞEKİLDE AYARLA
-      _app.onTestCompleted = _onTestCompleted;
-      print('[DEBUG] Callback ayarlandı: ${_app.onTestCompleted != null}');
+  void _setupCallbacks() {
+    final app = Provider.of<AppState>(context, listen: false);
+    app.onTestCompleted = _onTestCompleted;
+    print('[DEBUG] TestScreen: Callback ayarlandı');
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Güvenlik için callback'i tekrar ayarla
+    _setupCallbacks();
+  }
+
+  @override
+  void dispose() {
+    // Memory leak'i önle
+    final app = Provider.of<AppState>(context, listen: false);
+    app.onTestCompleted = null;
+    super.dispose();
+  }
+
+  void _onTestCompleted(TestVerisi test) {
+    print('[DEBUG] _onTestCompleted called:');
+    print('  - Test Adı: ${test.testAdi}');
+    print('  - Puan: ${test.puan}');
+    print('  - Sonuç: ${test.sonuc}');
+
+    // Son testi sakla
+    _lastCompletedTest = test;
+
+    // Dialog zaten gösteriliyorsa tekrar gösterme
+    if (_isDialogShowing) {
+      print('[DEBUG] Dialog already showing, skipping');
+      return;
+    }
+
+    _isDialogShowing = true;
+    print('[DEBUG] Showing completion dialog for: ${test.testAdi}');
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showDeviceResultDialog(test);
     });
   }
 
@@ -51,34 +91,6 @@ class _TestScreenState extends State<TestScreen> {
     }
   }
 
-  void _onTestCompleted(TestVerisi test) {
-    print('[DEBUG] _onTestCompleted called: ${test.testAdi}');
-
-    // ✅ GÜÇLENDİRİLMİŞ ÇAKIŞMA KONTROLÜ
-    if (_isDuplicateTest(test) || _isDialogShowing) {
-      print('[DEBUG] Çakışma önlendi - Duplicate: ${_isDuplicateTest(test)}, Dialog: $_isDialogShowing');
-      return;
-    }
-
-    _isDialogShowing = true;
-    _lastCompletedTest = test;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showDeviceResultDialog(test);
-    });
-  }
-
-  bool _isDuplicateTest(TestVerisi test) {
-    if (_lastCompletedTest == null) return false;
-
-    final isSameName = test.testAdi == _lastCompletedTest!.testAdi;
-    final timeDiff = test.tarih.difference(_lastCompletedTest!.tarih).inSeconds.abs();
-    final isRecent = timeDiff < 8; // 8 saniye
-
-    return isSameName && isRecent;
-  }
-
-  // ✅ YENİ: Manuel olarak son testi göster
   void _showLastTestResult() {
     if (_lastCompletedTest != null && !_isDialogShowing) {
       _isDialogShowing = true;
@@ -137,14 +149,14 @@ class _TestScreenState extends State<TestScreen> {
               child: const Text("KAPAT"),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                _isDialogShowing = false; // ✅ Burada sıfırla
+                _isDialogShowing = false;
               },
             ),
             TextButton(
               child: const Text("RAPORU GÖRÜNTÜLE"),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                _isDialogShowing = false; // ✅ Burada da sıfırla
+                _isDialogShowing = false;
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -157,7 +169,6 @@ class _TestScreenState extends State<TestScreen> {
         );
       },
     ).then((_) {
-      // ✅ Ek güvenlik: her durumda sıfırla
       _isDialogShowing = false;
       print('[DEBUG] Dialog kapandı, flag sıfırlandı');
     });
@@ -168,7 +179,6 @@ class _TestScreenState extends State<TestScreen> {
     return '$activeCount/8';
   }
 
-// Aktif valflerin listesini al
   String _getActiveValvesText(Map<String, bool> valveStates) {
     List<String> activeValves = [];
     valveStates.forEach((key, value) {
@@ -181,20 +191,24 @@ class _TestScreenState extends State<TestScreen> {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, app, _) {
-        // DEBUG: Test durumunu ve callback'i kontrol et
-        print('[DEBUG] Build - Test State: ${app.currentTestState}');
-        print('[DEBUG] Build - Callback: ${app.onTestCompleted != null}');
-        print('[DEBUG] Build - Completed Tests: ${app.completedTests.length}');
-
-        final currentPhase = app.currentPhase;
-        final phaseName = _getPhaseName(currentPhase);
-        // ✅ DÜZELTİLDİ: Tüm aktif test durumlarını kontrol et
+        if (kDebugMode) {
+          print('[DEBUG] Mock Mode: ${app.mockMode}');
+        }
+        // ✅ DOĞRU STATE KONTROLLERİ
         final isRunning = app.currentTestState == TestState.starting ||
             app.currentTestState == TestState.running ||
             app.currentTestState == TestState.waitingReport ||
             app.currentTestState == TestState.parsingReport;
 
         final isPaused = app.currentTestState == TestState.paused;
+
+        final canStartTest = app.currentTestState == TestState.idle ||
+            app.currentTestState == TestState.completed ||
+            app.currentTestState == TestState.error ||
+            app.currentTestState == TestState.cancelled;
+
+        final canStopTest = isRunning || isPaused;
+
         return Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -203,7 +217,7 @@ class _TestScreenState extends State<TestScreen> {
               // Test Adı Girişi
               TextField(
                 controller: _nameController,
-                enabled: !isRunning,
+                enabled: !isRunning && !isPaused,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: "Test Adı",
@@ -218,8 +232,8 @@ class _TestScreenState extends State<TestScreen> {
               ),
               const SizedBox(height: 20),
 
-              // ✅ YENİ: Son Test Sonucu Butonu
-              if (_lastCompletedTest != null && !isRunning)
+              // Son Test Sonucu Butonu
+              if (_lastCompletedTest != null && !isRunning && !isPaused)
                 ElevatedButton.icon(
                   onPressed: _showLastTestResult,
                   icon: const Icon(Icons.assignment, color: Colors.white),
@@ -231,17 +245,16 @@ class _TestScreenState extends State<TestScreen> {
                   ),
                 ),
 
-              if (_lastCompletedTest != null && !isRunning)
+              if (_lastCompletedTest != null && !isRunning && !isPaused)
                 const SizedBox(height: 10),
 
               // Ana Kontrol Butonları
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
+                  // BAŞLAT Butonu
                   ElevatedButton.icon(
-                    onPressed: isRunning
-                        ? null
-                        : () async {
+                    onPressed: canStartTest ? () async {
                       final name = _nameController.text.trim();
                       if (name.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -252,7 +265,7 @@ class _TestScreenState extends State<TestScreen> {
                         return;
                       }
                       await app.startFullTest(name);
-                    },
+                    } : null,
                     icon: const Icon(Icons.play_arrow, color: Colors.white),
                     label: const Text("Başlat",
                         style: TextStyle(color: Colors.white, fontSize: 16)),
@@ -261,20 +274,30 @@ class _TestScreenState extends State<TestScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
                   ),
+
+                  // DURAKLAT/DEVAM Butonu
                   ElevatedButton.icon(
-                    onPressed: isRunning ? () => app.pauseTest() : null,
-                    icon: Icon(isPaused ? Icons.play_arrow : Icons.pause, color: Colors.white),
-                    label: Text(isPaused ? "Devam" : "Duraklat",
-                        style: const TextStyle(color: Colors.white, fontSize: 16)),
+                    onPressed: isRunning ? () => app.pauseTest() :
+                    isPaused ? () => app.resumeTest() : null,
+                    icon: Icon(
+                        isPaused ? Icons.play_arrow : Icons.pause,
+                        color: Colors.white
+                    ),
+                    label: Text(
+                        isPaused ? "Devam" : "Duraklat",
+                        style: const TextStyle(color: Colors.white, fontSize: 16)
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange,
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     ),
                   ),
+
+                  // DURDUR Butonu
                   ElevatedButton.icon(
-                    onPressed: isRunning ? () => app.stopTest() : null,
+                    onPressed: canStopTest ? () => app.stopTest() : null,
                     icon: const Icon(Icons.stop, color: Colors.white),
-                    label: const Text("Bitir",
+                    label: const Text("Durdur",
                         style: TextStyle(color: Colors.white, fontSize: 16)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
@@ -286,14 +309,13 @@ class _TestScreenState extends State<TestScreen> {
 
               const SizedBox(height: 16),
 
-              // Test Kontrol Butonları
-              if (isRunning) ...[
+              // Test Kontrol Butonları (Sadece çalışırken)
+              if (isRunning || isPaused) ...[
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     ElevatedButton.icon(
                       onPressed: () {
-                        // Faz atlama komutu - Bluetooth modunda çalışacak
                         app.sendCommand("amk");
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -323,13 +345,13 @@ class _TestScreenState extends State<TestScreen> {
                                   style: TextStyle(color: Colors.white70)),
                               actions: [
                                 TextButton(
-                                  onPressed: () => app.stopTest(),
+                                  onPressed: () => Navigator.of(context).pop(),
                                   child: const Text("Hayır",
                                       style: TextStyle(color: Colors.white)),
                                 ),
                                 TextButton(
                                   onPressed: () {
-                                    app.sendCommand("aq");
+                                    app.stopTest();
                                     Navigator.of(context).pop();
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
@@ -359,6 +381,7 @@ class _TestScreenState extends State<TestScreen> {
                 const SizedBox(height: 16),
               ],
 
+              // Test Durumu Container'ı
               Container(
                 padding: EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -376,10 +399,10 @@ class _TestScreenState extends State<TestScreen> {
                         )),
                     SizedBox(height: 8),
 
-                    // ✅ YENİ: İki container'ı yan yana yerleştir
+                    // Faz ve Vites Bilgileri
                     Row(
                       children: [
-                        // SOL: FAZ Bilgisi Container'ı
+                        // SOL: FAZ Bilgisi
                         Expanded(
                           child: Container(
                             padding: EdgeInsets.all(8),
@@ -390,7 +413,7 @@ class _TestScreenState extends State<TestScreen> {
                             child: Column(
                               children: [
                                 Text(
-                                  _getPhaseName(app.currentPhase), // Bu satırı ekleyin
+                                  _getPhaseName(app.currentPhase),
                                   style: TextStyle(
                                     color: Colors.yellow,
                                     fontWeight: FontWeight.bold,
@@ -398,7 +421,7 @@ class _TestScreenState extends State<TestScreen> {
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
-                                SizedBox(height: 4), // Biraz boşluk ekleyin
+                                SizedBox(height: 4),
                                 if (app.currentFazBilgisi != null) ...[
                                   Text(
                                     "Süre: ${app.currentFazBilgisi!['sure']}",
@@ -415,9 +438,9 @@ class _TestScreenState extends State<TestScreen> {
                           ),
                         ),
 
-                        SizedBox(width: 8), // Ara boşluk
+                        SizedBox(width: 8),
 
-                        // SAĞ: Vites ve Valf Container'ı
+                        // SAĞ: Vites ve Valf Bilgisi
                         Expanded(
                           child: Container(
                             padding: EdgeInsets.all(8),
@@ -457,7 +480,6 @@ class _TestScreenState extends State<TestScreen> {
                                   ],
                                 ),
                                 SizedBox(height: 8),
-                                // Aktif valfleri göster
                                 Text(
                                   _getActiveValvesText(app.valveStates),
                                   style: TextStyle(color: Colors.white70, fontSize: 10),
@@ -488,7 +510,6 @@ class _TestScreenState extends State<TestScreen> {
                                 )),
                           ],
                         ),
-
                         Column(
                           children: [
                             Icon(

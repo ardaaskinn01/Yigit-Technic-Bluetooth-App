@@ -6,9 +6,11 @@ import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import '../models/test_verisi.dart';
 import '../models/testmode_verisi.dart';
 import '../services/bluetooth_service.dart';
-import '../services/database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+
+import '../services/database.dart';
+import '../utils/mekatronik_puanlama.dart';
 
 enum TestPhase { idle, phase0, phase1, phase2, phase3, phase4, completed }
 
@@ -33,8 +35,6 @@ class AppState extends ChangeNotifier {
   bool get canStartTest => _currentTestState == TestState.idle ||
       _currentTestState == TestState.completed ||
       _currentTestState == TestState.error;
-  TestVerisi? _lastCompletedTest;
-  TestVerisi? get lastCompletedTest => _lastCompletedTest;
 
   bool get canPauseTest => _currentTestState == TestState.running;
   bool get canResumeTest => _currentTestState == TestState.paused;
@@ -43,6 +43,7 @@ class AppState extends ChangeNotifier {
       _currentTestState == TestState.waitingReport;
   double pressure = 0;
   String gear = '-';
+  final DatabaseService _dbService = DatabaseService();
   bool pumpOn = false;
   String lastMessage = '';
   bool pressureToggle = true;
@@ -64,8 +65,7 @@ class AppState extends ChangeNotifier {
   double faz4PompaSuresi = 0;
   String autoCycleMode = '0';
   Timer? _testTimeoutTimer;
-  Duration _testTimeout = Duration(minutes: 30); // 25 dakikadan 30 dakikaya
-  final Duration _stateTimeout = Duration(minutes: 3); // 2 dakikadan 3 dakikaya // 25 dakika timeout
+  Duration _testTimeout = Duration(minutes: 25); // 25 dakika timeout
   Map<String, double> _deviceScores = {};
   Completer<void>? _testCompletionCompleter;
   bool _waitingForReport = false;
@@ -82,18 +82,14 @@ class AppState extends ChangeNotifier {
   bool _testModuRaporuCallbackRegistered = false;
   TestState _currentTestState = TestState.idle;
   TestState get currentTestState => _currentTestState;
-  final DatabaseService _dbService = DatabaseService();
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
   TestPhase _currentPhase = TestPhase.idle;
   TestPhase get currentPhase => _currentPhase;
-  TestVerisi? _lastParsedTest;
-  TestVerisi? get lastParsedTest => _lastParsedTest;
-  bool _isInitialized = false;
-  bool _testCallbackTriggered = false;
-  final Map<String, DateTime> _lastToggleTime = {};
-  bool get isInitialized => _isInitialized;
 
   // State geçişleri için timer
   Timer? _stateTimeoutTimer;
+  final Duration _stateTimeout = Duration(minutes: 2); // State timeout
 
   // Önceki state (geri dönüş için)
   TestState? _previousState;
@@ -143,13 +139,20 @@ class AppState extends ChangeNotifier {
 
   int get currentFazNo {
     switch (currentPhase) {
-      case TestPhase.phase0: return 0;
-      case TestPhase.phase1: return 1;
-      case TestPhase.phase2: return 2;
-      case TestPhase.phase3: return 3;
-      case TestPhase.phase4: return 4;
-      case TestPhase.completed: return 5;
-      default: return -1;
+      case TestPhase.phase0:
+        return 0;
+      case TestPhase.phase1:
+        return 1;
+      case TestPhase.phase2:
+        return 2;
+      case TestPhase.phase3:
+        return 3;
+      case TestPhase.phase4:
+        return 4;
+      case TestPhase.completed:
+        return 5; // Tamamlandığında FAZ 5 göster
+      default:
+        return -1;
     }
   }
 
@@ -164,6 +167,7 @@ class AppState extends ChangeNotifier {
   double faz2Pompa = 0;
   Map<String, double> faz3Vitesler = {};
   double faz4Pompa = 0;
+
   bool isTesting = false;
   double phaseProgress = 0.0;
   String phaseStatusMessage = "";
@@ -173,6 +177,7 @@ class AppState extends ChangeNotifier {
   Timer? _testTimer;
   int _elapsedTestSeconds = 0;
   Function(String)? onDeviceReportReceived;
+  Timer? _uiUpdateTimer;
   final List<Function(String)> _reportCallbacks = [];
 
   // Test verileri
@@ -219,248 +224,30 @@ class AppState extends ChangeNotifier {
   Map<String, bool> valveStates = {
     'N440': false,
     'N436': false,
-    'N435': false, // K1
-    'N439': false, // K2
+    'K1': false,
+    'K2': false,
     'N433': false,
     'N438': false,
     'N434': false,
     'N437': false,
   };
 
-  void _handleIncomingMessage(String message) {
-    // 1. Log kaydı (sadece bir yerde)
-    _addToLogs(message);
-
-    // ✅ YENİ: Valf güncellemesi (her mesajda kontrol et)
-    updateValvesFromMessage(message);
-
-    // 2. State machine durumuna göre yönlendirme
-    _routeMessageByState(message);
-
-    // 3. Acil durum verilerini işle (her durumda gerekli)
-    _processCriticalData(message);
-
-    // ✅ UI güncelleme
-    notifyListeners();
-  }
-
-  void _routeMessageByState(String message) {
-    switch (_currentTestState) {
-      case TestState.running:
-        _processTestRunningMessage(message);
-        break;
-      case TestState.waitingReport:
-        _processWaitingReportMessage(message);
-        break;
-      case TestState.parsingReport:
-        _processParsingReportMessage(message);
-        break;
-      default:
-        _processGeneralMessage(message);
-    }
-  }
-
-  void _processCriticalData(String message) {
-    // Sadece hayati veriler - her durumda işlenmeli
-    _parsePressureIfExists(message);
-    _parseGearIfExists(message);
-  }
-
-  void _processTestRunningMessage(String message) {
-    // 1. Faz geçişleri (en yüksek öncelik)
-    if (_isPhaseTransition(message)) {
-      _handlePhaseTransition(message);
-      return;
-    }
-
-    // 2. Test tamamlanma
-    if (_isTestCompletion(message)) {
-      _handleTestCompletion(message);
-      return;
-    }
-
-    // 3. Hata durumları
-    if (_isErrorMessage(message)) {
-      _handleErrorMessage(message);
-      return;
-    }
-
-    // 4. Normal test verileri
-    _processTestData(message);
-  }
-
-  void _triggerReportCallbacks(String message) {
-    // Mevcut callback'leri tetikle ve temizle
-    final callbacks = List<Function(String)>.from(_reportCallbacks);
-    _reportCallbacks.clear();
-
-    for (final callback in callbacks) {
-      try {
-        callback(message);
-      } catch (e) {
-        logs.add('Callback error: $e');
-      }
-    }
-
-    // External callback
-    if (onDeviceReportReceived != null) {
-      onDeviceReportReceived!(message);
-    }
-  }
-
-  void _addToLogs(String message) {
-    logs.add('[${DateTime.now().toIso8601String()}] $message');
-
-    // Log sayısını sınırla
-    if (logs.length > _maxLogCount) {
-      logs.removeRange(0, logs.length - _maxLogCount);
-    }
-  }
-
-  void _processWaitingReportMessage(String message) {
-    // Mevcut _processWaitingReportStateMessage ile aynı işi yap
-    _collectedReport += message + '\n';
-    logs.add('[RAPOR TOPLANIYOR] ${message.length} karakter eklendi');
-
-    if (_isReportComplete(_collectedReport)) {
-      logs.add('Rapor tamamlandı, parsing state\'ine geçiliyor');
-      _setTestState(TestState.parsingReport, message: 'Rapor tamamlandı');
-    }
-  }
-
-  void _processParsingReportMessage(String message) {
-    // Mevcut _processParsingReportStateMessage ile aynı işi yap
-    _collectedReport += message + '\n';
-  }
-
-  void _processGeneralMessage(String message) {
-    // Mevcut _processDefaultStateMessage ile aynı işi yap
-    _parsePressureData(message);
-    _parseGearData(message);
-  }
-
-  void _parsePressureIfExists(String message) {
-    // Basınç verisi varsa parse et
-    final pressureMatch = RegExp(r'([\d.]+)\s*bar').firstMatch(message);
-    if (pressureMatch != null) {
-      pressure = double.tryParse(pressureMatch.group(1)!) ?? pressure;
-
-      // Min/Max basınç güncelle
-      if (pressure < _currentMinPressure) _currentMinPressure = pressure;
-      if (pressure > _currentMaxPressure) _currentMaxPressure = pressure;
-    }
-  }
-
-  void _parseGearIfExists(String message) {
-    // Vites verisi varsa parse et - mevcut _parseGearData'nın basitleştirilmiş hali
-    if (message.contains('1. vites') || message.contains('1.vites')) {
-      _updateGear('1');
-    }
-    else if (message.contains('2. vites') || message.contains('2.vites')) {
-      _updateGear('2');
-    }
-    else if (message.contains('3. vites') || message.contains('3.vites')) {
-      _updateGear('3');
-    }
-    else if (message.contains('4. vites') || message.contains('4.vites')) {
-      _updateGear('4');
-    }
-    else if (message.contains('5. vites') || message.contains('5.vites')) {
-      _updateGear('5');
-    }
-    else if (message.contains('6. vites') || message.contains('6.vites')) {
-      _updateGear('6');
-    }
-    else if (message.contains('7. vites') || message.contains('7.vites')) {
-      _updateGear('7');
-    }
-    else if (message.contains('r vites') || message.contains('r.vites') ||
-        message.contains('R vites') || message.contains('R.vites')) {
-      _updateGear('R');
-    }
-  }
-
-  bool _isPhaseTransition(String message) {
-    // Faz geçiş mesajı mı?
-    return message.contains("atlandi!") ||
-        message.contains("atlandı!") ||
-        message.contains("FAZ 0 tamamlandı") ||
-        message.contains("FAZ 0 tamamlandi") ||
-        message.contains("FAZ 1 tamamlandı") ||
-        message.contains("FAZ 1 tamamlandi") ||
-        message.contains("FAZ 2 tamamlandı") ||
-        message.contains("FAZ 2 tamamlandi") ||
-        message.contains("FAZ 3 tamamlandı") ||
-        message.contains("FAZ 3 tamamlandi") ||
-        message.contains("FAZ 4 tamamlandı") ||
-        message.contains("FAZ 4 tamamlandi");
-  }
-
-  bool _isTestCompletion(String message) {
-    // Test tamamlanma mesajı mı?
-    return message.contains(">>> Test protokolu tamamlandi! <<<") ||
-        message.contains("TEST RAPORU:") ||
-        message.contains("MEKATRONİK SAĞLIK RAPORU") ||
-        message.contains("TEST TAMAMLANDI");
-  }
-
-  void _handleTestCompletion(String message) {
-    // Test tamamlanma işlemi
-    logs.add('🎯 TEST TAMAMLANDI MESAJI YAKALANDI');
-
-    if (_currentTestState == TestState.running ||
-        _currentTestState == TestState.waitingReport) {
-      _setTestState(TestState.completed, message: 'Test otomatik tamamlandı');
-    }
-  }
-
-  bool _isErrorMessage(String message) {
-    // Hata mesajı mı?
-    return message.contains("HATA:") ||
-        message.contains("TIMEOUT") ||
-        message.contains("HATA :");
-  }
-
-  void _handleErrorMessage(String message) {
-    // Hata işleme
-    _setTestState(TestState.error, message: 'Cihaz hatası: $message');
-    _saveErrorTest('Cihaz hatası: $message');
-  }
-
-  void _processTestData(String message) {
-    // Normal test verilerini işle
-    // Burada diğer test verisi parsing işlemleri yapılabilir
-    _parseToplamTekrar(message);
-
-    // Rapor başlangıcı kontrolü
-    if (message.contains("MEKATRONİK SAĞLIK RAPORU") ||
-        message.contains("GENEL PUAN:") ||
-        message.contains("TOPLAM PUAN:") ||
-        (message.contains("FAZ 0:") && message.contains("FAZ 4:"))) {
-
-      logs.add('Rapor başlangıcı tespit edildi - waitingReport state\'ine geçiliyor');
-      _setTestState(TestState.waitingReport, message: 'Rapor başlangıcı alındı');
-    }
-  }
-
-  void _setTestState(TestState newState, {String? message, TestVerisi? completedTest}) {
+  void _setTestState(TestState newState, {String? message}) {
     if (_currentTestState == newState) return;
-
-    // ✅ ÖNCEKİ STATE TIMER'I TEMİZLE
-    _stateTimeoutTimer?.cancel();
 
     _previousState = _currentTestState;
     _currentTestState = newState;
 
+    // Önceki state timer'ını temizle
+    _stateTimeoutTimer?.cancel();
+
+    // Log ekle
     logs.add('[STATE] ${_stateToString(_previousState)} → ${_stateToString(newState)} ${message ?? ''}');
 
-    // YENİ STATE İÇİN TIMER BAŞLAT (sadece belirli state'ler için)
-    if (newState == TestState.starting || newState == TestState.waitingReport) {
-      _startStateTimeout();
-    }
-
+    // State'e özel işlemler
     _handleStateTransition(newState);
-    notifyListeners(); // ⭐ BURADA MUTLAKA NOTIFY ET!
+
+    notifyListeners();
   }
 
   String _stateToString(TestState? state) {
@@ -478,27 +265,28 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveAndCompleteTest(TestVerisi test, TestState state) async {
-    try {
-      // 1. Önce veritabanına kaydet
-      final id = await _dbService.insertTest(test);
-      test.id = id;
-
-      // 2. Listeyi güncelle
-      completedTests.insert(0, test);
-      if (completedTests.length > 100) completedTests.removeLast();
-
-      // 3. State'i güncelle VE callback tetikle
-      _setTestState(state, message: 'Test kaydedildi', completedTest: test);
-
-      print('[DEBUG] Test başarıyla kaydedildi: ${test.testAdi}');
-
-    } catch (e) {
-      print('❌ Test kaydetme hatası: $e');
-      _setTestState(TestState.error, message: 'Kaydetme hatası: $e');
-    }
+  Future<Map<String, dynamic>> getDatabaseInfo() async {
+    return await _dbService.getDatabaseInfo();
   }
 
+  Future<bool> isTableExists() async {
+    return await _dbService.isTableExists();
+  }
+
+  Future<void> deleteTest(TestVerisi test) async {
+    if (test.id != null) {
+      await _dbService.deleteTest(test.id!);
+    }
+    completedTests.remove(test);
+    notifyListeners();
+  }
+
+// Tüm testleri silme
+  Future<void> clearTests() async {
+    await _dbService.deleteAllTests();
+    completedTests.clear();
+    notifyListeners();
+  }
 
   void _handleStateTransition(TestState newState) {
     switch (newState) {
@@ -536,14 +324,7 @@ class AppState extends ChangeNotifier {
     _resetTestVariables();
     _startTestTimer();
 
-    // ✅ YENİ: Hemen "running" state'e geçiş yap
-    // Çünkü logda testin hemen başladığını görüyoruz
-    Future.delayed(Duration(milliseconds: 500), () {
-      if (_currentTestState == TestState.starting) {
-        _setTestState(TestState.running, message: 'Test otomatik başlatıldı');
-      }
-    });
-
+    // State timeout başlat
     _startStateTimeout();
   }
 
@@ -553,7 +334,7 @@ class AppState extends ChangeNotifier {
     testFinished = false;
 
     // Bluetooth listener başlat
-    _startBluetoothTestListener(); // ✅ Bu zaten doğru şekilde çağrılıyor
+    _startBluetoothTestListener();
   }
 
   void _onWaitingReport() {
@@ -581,69 +362,40 @@ class AppState extends ChangeNotifier {
   }
 
   void _onTestCompleted() {
-    logs.add('🎉 TEST TAMAMLANDI CALLBACK ÇAĞRILDI!');
+    logs.add('Test tamamlandı!');
+    _currentPhase = TestPhase.completed;
+    isTesting = false;
+    testFinished = true;
+    testStatus = 'Tamamlandı';
 
-    // ✅ _lastParsedTest kontrolü
-    if (_lastParsedTest == null) {
-      logs.add('❌ HATA: _lastParsedTest NULL!');
-      return;
-    }
+    _resetSystemAfterTest();
 
-    print('[DEBUG] _onTestCompleted: ${_lastParsedTest!.testAdi}');
-    print('[DEBUG] Callback durumu: ${onTestCompleted != null}');
+    // ✅ GÜNCELLENDİ: Önce testi kaydet, SONRA callback tetikle
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final test = await _saveFullTest();
+        logs.add('Test kaydedildi ve callback tetiklendi: ${test.testAdi}');
 
-    // ✅ Callback tetikleme
-    if (onTestCompleted != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        print('[DEBUG] onTestCompleted callback tetikleniyor');
-        onTestCompleted!(_lastParsedTest!);
-      });
-    } else {
-      print('❌ onTestCompleted callback NULL!');
-    }
-
-    // ✅ UI güncelleme
-    notifyListeners();
-  }
-
-  Future<Map<String, dynamic>> getDatabaseInfo() async {
-    return await _dbService.getDatabaseInfo();
-  }
-
-  Future<bool> isTableExists() async {
-    return await _dbService.isTableExists();
-  }
-
-  Future<void> initializeApp() async {
-    if (_isInitialized) return;
-
-    try {
-      print('🔄 AppState initialize başlıyor...');
-
-      // Veritabanı bağlantısını bekle
-      await _dbService.database;
-
-      // Testleri veritabanından yükle
-      await loadTestsFromLocal();
-
-      print('✅ AppState başarıyla initialize edildi');
-      print('📊 Yüklenen test sayısı: ${completedTests.length}');
-
-      _isInitialized = true; // ⭐ BU SATIR ÖNEMLİ
-      notifyListeners();
-
-    } catch (e) {
-      print('❌ AppState initialize hatası: $e');
-      _isInitialized = false;
-    }
-  }
-
-  // ✅ Uygulama kapanırken temizlik
-  Future<void> cleanup() async {
-    _resetAllTimers();
-    _sub?.cancel();
-    bt.dispose();
-    print('✅ AppState temizlendi');
+        // Callback'i güvenli şekilde tetikle
+        if (onTestCompleted != null) {
+          onTestCompleted!(test);
+        }
+      } catch (e) {
+        logs.add('❌ Test kaydetme hatası: $e');
+        // Hata durumunda bile callback tetikle (null test ile)
+        if (onTestCompleted != null) {
+          onTestCompleted!(TestVerisi(
+            testAdi: _currentTestName,
+            tarih: DateTime.now(),
+            minBasinc: 0,
+            maxBasinc: 0,
+            toplamPompaSuresi: 0,
+            puan: 0,
+            sonuc: "KAYIT HATASI: $e",
+          ));
+        }
+      }
+    });
   }
 
   void _onTestError() {
@@ -683,57 +435,24 @@ class AppState extends ChangeNotifier {
     logs.add('[STATE TIMEOUT] ${_stateToString(_currentTestState)} state\'i timeouta uğradı');
 
     switch (_currentTestState) {
-      case TestState.starting:
-      // ✅ YENİ: Starting timeout'ta testin gerçekten başlayıp başlamadığını kontrol et
-        if (_elapsedTestSeconds > 10) {
-          // Test süresi ilerliyorsa, test başlamış demektir
-          logs.add('Test başladı ama state güncellenmedi - running state\'ine zorla geç');
-          _setTestState(TestState.running, message: 'Timeout recovery');
-        } else {
-          logs.add('Test başlatma timeout');
-          _setTestState(TestState.error, message: 'Başlatma timeout');
-          _saveErrorTest('Başlatma timeout');
-        }
-        break;
-
       case TestState.waitingReport:
         logs.add('Rapor timeout - manuel isteniyor');
         _requestDeviceScore();
+
+        // ✅ DÜZELTİLDİ: Timeout durumunda da testi kaydet
         _saveTimeoutTest();
+        break;
+
+      case TestState.starting:
+        logs.add('Test başlatma timeout');
+        _setTestState(TestState.error, message: 'Başlatma timeout');
+        _saveErrorTest('Başlatma timeout');
         break;
 
       default:
         _setTestState(TestState.error, message: 'State timeout');
         _saveErrorTest('State timeout');
     }
-  }
-
-  void _completeTestWithCallback(TestVerisi test) {
-    // Çakışma kontrolü
-    if (_shouldSkipCallback(test)) return;
-
-    // State kontrolü
-    if (_currentTestState != TestState.completed &&
-        _currentTestState != TestState.error &&
-        _currentTestState != TestState.cancelled) {
-      return;
-    }
-  }
-
-  bool _shouldSkipCallback(TestVerisi test) {
-    // Güçlü çakışma kontrolü
-    if (_lastCompletedTest != null) {
-      final timeDiff = test.tarih.difference(_lastCompletedTest!.tarih).inSeconds.abs();
-      final isSameTest = test.testAdi == _lastCompletedTest!.testAdi;
-
-      if (isSameTest && timeDiff < 10) { // 10 saniye
-        print('[CALLBACK] Aynı test atlanıyor: ${test.testAdi}');
-        return true;
-      }
-    }
-
-    _lastCompletedTest = test;
-    return false;
   }
 
 // ✅ YENİ: Timeout testi kaydetme
@@ -744,13 +463,11 @@ class AppState extends ChangeNotifier {
       minBasinc: _currentMinPressure,
       maxBasinc: _currentMaxPressure,
       toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
-      puan: _calculateScoreFromFazScores(),
+      puan: _calculateScoreFromFazScores(), // Mevcut puanları kullan
       sonuc: "TIMEOUT",
     );
 
-    // ❌ ESKİ: _saveTestAndTriggerCallback(test);
-    // ✅ YENİ: Tek metod kullan
-    _saveAndCompleteTest(test, TestState.completed);
+    _saveTestAndTriggerCallback(test);
   }
 
 // ✅ YENİ: Hata testi kaydetme
@@ -765,11 +482,19 @@ class AppState extends ChangeNotifier {
       sonuc: "HATA: $errorMessage",
     );
 
-    // ❌ ESKİ: _saveTestAndTriggerCallback(test);
-    // ✅ YENİ: Tek metod kullan
-    _saveAndCompleteTest(test, TestState.error);
+    _saveTestAndTriggerCallback(test);
   }
 
+// ✅ YENİ: Ortak kaydetme metodu
+  void _saveTestAndTriggerCallback(TestVerisi test) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      saveTest(test).then((_) {
+        if (onTestCompleted != null) {
+          onTestCompleted!(test);
+        }
+      });
+    });
+  }
 
   void startTestMode(int mode) {
     if (mode < 1 || mode > 8) return;
@@ -798,7 +523,6 @@ class AppState extends ChangeNotifier {
       }
 
       // Bluetooth komutunu gönder
-      sendCommand("RAPORMOD $mode");
       sendCommand(mode.toString());
 
       // Tüm valf durumlarını gönder
@@ -894,8 +618,8 @@ class AppState extends ChangeNotifier {
     states['N438'] = false;
     states['N436'] = false;
     states['N440'] = false;
-    states['N435'] = isK1K2Mode && _shouldK1BeActive(gear);
-    states['N439'] = isK1K2Mode && _shouldK2BeActive(gear);
+    states['N435'] = false;
+    states['N439'] = false;
 
     // Vites -> Valf eşleştirmesi
     switch (gear) {
@@ -943,40 +667,17 @@ class AppState extends ChangeNotifier {
     return states;
   }
 
-  bool _shouldK1BeActive(String gear) {
-    return ['1', '3', '5', '7'].contains(gear);
-  }
-
-  bool _shouldK2BeActive(String gear) {
-    return ['2', '4', '6', 'R'].contains(gear);
-  }
-
   void _sendSingleValveStateToBluetooth(String valveKey, bool state) {
     try {
       String bluetoothCommand = valveKey;
+      if (valveKey == 'N436') bluetoothCommand = 'N36';
+      if (valveKey == 'N440') bluetoothCommand = 'N40';
 
-      // Mapping tablosu
-      final Map<String, String> valveMapping = {
-        'N436': 'N36',
-        'N440': 'N40',
-        'N435': 'K1',
-        'N439': 'K2',
-        'N433': 'N33',
-        'N434': 'N34',
-        'N437': 'N37',
-        'N438': 'N38',
-      };
-
-      bluetoothCommand = valveMapping[valveKey] ?? valveKey;
-
-      // Duruma göre komut
-      String command = state ? "${bluetoothCommand}ON" : "${bluetoothCommand}OFF";
-      sendCommand(command);
-
-      logs.add('[BLUETOOTH] $command gönderildi ($valveKey: $state)');
+      String command = state ? "1" : "0";
+      sendCommand("$bluetoothCommand=$command");
 
     } catch (e) {
-      logs.add('[HATA] Valf komutu gönderilemedi $valveKey: $e');
+      logs.add('[HATA] Valf durumu gönderilemedi $valveKey: $e');
     }
   }
 
@@ -1008,16 +709,14 @@ class AppState extends ChangeNotifier {
     _testModeValveUpdateTimer = null;
 
     try {
-      // ✅ ÖNCE rapor iste
-      if (mode != 8) { // Sadece normal test modları için
-        _requestTestModeReport();
-      }
-
       // Sistem durumunu sıfırla
       currentTestMode = 0;
       isTestModeActive = false;
       pumpOn = false;
       gear = 'BOŞ';
+
+      // Valf durumlarını sıfırla
+      _updateValvesFromBluetoothData();
 
       // Bluetooth komutlarını gönder
       sendCommand("S");
@@ -1036,116 +735,26 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _requestTestModeReport() {
-    logs.add("Test modu raporu isteniyor...");
-    sendCommand("RAPOR");
-
-    // Rapor gelmesi için kısa bir bekleme
-    Future.delayed(Duration(milliseconds: 500));
-  }
-
-  // Test kaydetme
-  Future<void> saveTest(TestVerisi test) async {
-    print('🔄 [DEBUG] saveTest ÇAĞRILDI: ${test.testAdi}');
-
-    try {
-      final id = await _dbService.insertTest(test);
-      test.id = id;
-
-      // ✅ CRITICAL: Listeyi güncelle
-      completedTests.insert(0, test);
-      print('✅ [DEBUG] Test listeye eklendi. Yeni uzunluk: ${completedTests.length}');
-
-      // Maksimum kayıt kontrolü
-      if (completedTests.length > 100) {
-        completedTests.removeLast();
-      }
-
-      notifyListeners();
-      print('✅ [DEBUG] Test veritabanına kaydedildi: ${test.testAdi} (ID: $id)');
-
-      // ✅ BURADA CALLBACK TETİKLEMEYİN - dışarıdan tetiklenecek
-
-    } catch (e) {
-      print('❌ [DEBUG] Test kaydetme hatası: $e');
-      _saveToSharedPreferencesAsFallback(test);
-    }
-  }
-
-// Testleri yükleme
-  Future<void> loadTestsFromLocal() async {
-    try {
-      completedTests = await _dbService.getTests();
-      print('📊 [DEBUG] Veritabanından ${completedTests.length} test yüklendi');
-
-      // Testleri tarihe göre sırala (en yeni en üstte)
-      completedTests.sort((a, b) => b.tarih.compareTo(a.tarih));
-
-      notifyListeners();
-    } catch (e) {
-      print('❌ [DEBUG] Veritabanı yükleme hatası: $e');
-    }
-  }
-
-// Test silme
-  Future<void> deleteTest(TestVerisi test) async {
-    if (test.id != null) {
-      await _dbService.deleteTest(test.id!);
-    }
-    completedTests.remove(test);
-    notifyListeners();
-  }
-
-// Tüm testleri silme
-  Future<void> clearTests() async {
-    await _dbService.deleteAllTests();
-    completedTests.clear();
-    notifyListeners();
-  }
-
-  Future<void> _saveToSharedPreferencesAsFallback(TestVerisi test) async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('saved_tests') ?? [];
-    saved.add(json.encode(test.toJson()));
-    await prefs.setStringList('saved_tests', saved);
-  }
-
   Future<void> startFullTest(String testAdi) async {
-    if (!canStartTest) {
-      logs.add('❌ Test başlatılamaz: $_currentTestState');
-      return;
-    }
+    if (isTesting) return;
 
     _setTestState(TestState.starting, message: testAdi);
     _currentPhase = TestPhase.phase0;
-    _resetAllTimers();
+    _resetAllTimers(); // ⚠️ Bu timer'ı sıfırlıyor!
     _resetTestVariables();
-    _currentTestName = testAdi;
 
     try {
-      // Bluetooth listener başlat
-      _startBluetoothTestListener();
+      _currentTestName = testAdi;
+      _resetAllTimers();
+      _resetTestVariables();
+      _resetValvesForTestStart();
 
-      // Test komutunu gönder
-      sendCommand("TEST");
+      _setTestState(TestState.running);
 
-      // Test ismini gönder
-      Future.delayed(Duration(milliseconds: 200), () {
-        sendCommand(testAdi);
-      });
-
-      logs.add('🚀 TEST BAŞLATILDI: $testAdi');
-      notifyListeners();
-
-      // Hemen running state'e geç
-      _setTestState(TestState.running, message: 'Test başlatıldı');
-
-      // Timeout kontrolü
       await _runBluetoothTestWithTimeout(testAdi, DateTime.now());
 
     } catch (e) {
       _setTestState(TestState.error, message: e.toString());
-      logs.add('❌ Test başlatma hatası: $e');
     }
   }
 
@@ -1174,14 +783,9 @@ class AppState extends ChangeNotifier {
     _testTimer?.cancel();
     _elapsedTestSeconds = 0;
     _testTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      // TÜM aktif test durumlarında süreyi artır
-      if (_currentTestState == TestState.starting ||
-          _currentTestState == TestState.running ||
-          _currentTestState == TestState.waitingReport ||
-          _currentTestState == TestState.parsingReport) {
+      if (isTesting && !isPaused) {
         _elapsedTestSeconds++;
-        notifyListeners(); // UI'ı güncelle
-        print('[TIMER] Süre: $_elapsedTestSeconds saniye, State: $_currentTestState'); // Debug
+        notifyListeners();
       }
     });
   }
@@ -1189,18 +793,8 @@ class AppState extends ChangeNotifier {
   Future<void> _runBluetoothTestWithTimeout(String testAdi, DateTime startTime) async {
     _testCompletionCompleter = Completer<void>();
 
-    // ✅ YENİ: Test komutunu gönderdikten hemen sonra running state'e geç
-    _setTestState(TestState.running, message: 'Test komutu gönderildi');
-
-    _startBluetoothTestListener();
-    sendCommand("TEST");
-
-    // ✅ YENİ: Test ismini de gönder (logda görüldüğü gibi)
-    Future.delayed(Duration(milliseconds: 100), () {
-      sendCommand(testAdi);
-    });
-
-    logs.add("TEST komutu ve ismi gönderildi - State: ${_stateToString(_currentTestState)}");
+    // Testi starting state'ine al
+    _setTestState(TestState.starting, message: 'Timeout timer başlatıldı');
 
     _testTimeoutTimer = Timer(_testTimeout, () {
       if (!_testCompletionCompleter!.isCompleted) {
@@ -1210,6 +804,11 @@ class AppState extends ChangeNotifier {
         );
       }
     });
+
+    _startBluetoothTestListener();
+    sendCommand("TEST");
+
+    logs.add("TEST komutu gönderildi - State: ${_stateToString(_currentTestState)}");
 
     try {
       await _testCompletionCompleter!.future;
@@ -1225,31 +824,30 @@ class AppState extends ChangeNotifier {
   }
 
   void _startBluetoothTestListener() {
-    // ✅ ESKİ: Bu kompleks yaklaşım yerine
-    // ✅ YENİ: Direkt yeni listener'ı kullan
+    Function(String)? originalListener = onDeviceReportReceived;
 
-    // Önceki listener'ı temizle ve yeni listener'ı kur
-    _setupBluetoothListener();
+    onDeviceReportReceived = (String message) {
+      print('[BLUETOOTH_TEST] Mesaj alındı: $message');
+      _handleBluetoothTestMessage(message);
 
-    logs.add('Bluetooth test listener başlatıldı');
+      if (originalListener != null) {
+        originalListener(message);
+      }
+    };
   }
 
   void _handleBluetoothTestMessage(String message) {
-    print('[BLUETOOTH] Mesaj: $message');
+    print('[BLUETOOTH_TEST] Mesaj alındı: $message');
 
-    // Test başlama onayı
-    if (message.contains("FAZ 0:") || message.contains("TEST BAŞLATILDI")) {
-      if (_currentTestState == TestState.starting) {
-        _setTestState(TestState.running, message: 'Test başlama onayı');
-        logs.add('✅ Test başlama onayı alındı');
-      }
+    // State machine'e göre mesajı işle
+    _processMessageBasedOnState(message);
+
+    // Orijinal listener callback'i (eğer varsa)
+    if (onDeviceReportReceived != null) {
+      onDeviceReportReceived!(message);
     }
 
-    // YENİ: Merkezi işleyiciyi kullan
-    _handleIncomingMessage(message);
-
-    // ESKİ: _processMessageBasedOnState(message); // Bu satırı kaldırın
-    // ESKİ: notifyListeners(); // _handleIncomingMessage içinde zaten var
+    notifyListeners();
   }
 
   void _processMessageBasedOnState(String message) {
@@ -1278,18 +876,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _processRunningStateMessage(String message) {
-    // ✅ YENİ: Test başlatma onay mesajlarını yakala
-    if (message.contains("FAZ 0: Pompa aciliyor")) {
-
-      logs.add('🔍 Test başlatma onayı alındı - state running olarak güncelleniyor');
-
-      // Eğer hala starting state'inde isek, running'e geç
-      if (_currentTestState == TestState.starting) {
-        _setTestState(TestState.running, message: 'Test başlatma onaylandı');
-      }
-    }
-
-    // Mevcut faz geçiş işlemleri...
+    // Test çalışırken gelen mesajları işle
     if (message.contains("atlandi!") || message.contains("atlandı!")) {
       logs.add('🔍 Atlanan faz mesajı tespit edildi');
       _handlePhaseTransition(message);
@@ -1333,95 +920,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _handlePhaseTransition(String message) {
-    // ✅ YENİ: "atlandı!" mesajını tespit et ve fazı güncelle
-    if (message.contains("atlandi!") || message.contains("atlandı!")) {
-      _handleSkippedPhase(message);
-      return;
-    }
-
-    if (message.contains("FAZ 0 tamamlandi") || message.contains("FAZ 0 tamamlandı")) {
-      _currentPhase = TestPhase.phase1;
-      logs.add('✅ FAZ 0 tamamlandı → FAZ 1 başlıyor');
-      notifyListeners();
-    }
-    else if (message.contains("FAZ 1 tamamlandi") || message.contains("FAZ 1 tamamlandı")) {
-      _currentPhase = TestPhase.phase2;
-      logs.add('✅ FAZ 1 tamamlandı → FAZ 2 başlıyor');
-      notifyListeners();
-    }
-    else if (message.contains("FAZ 2 tamamlandi") || message.contains("FAZ 2 tamamlandı")) {
-      _currentPhase = TestPhase.phase3;
-      logs.add('✅ FAZ 2 tamamlandı → FAZ 3 başlıyor');
-      notifyListeners();
-    }
-    else if (message.contains("FAZ 3 tamamlandi") || message.contains("FAZ 3 tamamlandı")) {
-      _currentPhase = TestPhase.phase4;
-      logs.add('✅ FAZ 3 tamamlandı → FAZ 4 başlıyor');
-      notifyListeners();
-    }
-    else if (message.contains("FAZ 4 tamamlandi") || message.contains("FAZ 4 tamamlandı")) {
-      _currentPhase = TestPhase.completed;
-      logs.add('✅ FAZ 4 tamamlandı → TEST TAMAMLANDI');
-      notifyListeners();
-    }
-    else if (message.contains("TEST TAMAMLANDI") || message.contains("MEKATRONİK SAĞLIK RAPORU")) {
-      _currentPhase = TestPhase.completed;
-      logs.add('🎉 TEST TAMAMLANDI - Rapor bekleniyor');
-      notifyListeners();
-    }
-  }
-
-  void _handleSkippedPhase(String message) {
-    logs.add('🔍 Atlanan faz tespit edildi: $message');
-
-    // Mesajın başındaki FAZ bilgisini bul
-    final fazMatch = RegExp(r'FAZ\s*(\d+)').firstMatch(message);
-    if (fazMatch != null) {
-      int atlananFaz = int.tryParse(fazMatch.group(1)!) ?? -1;
-
-      if (atlananFaz >= 0 && atlananFaz <= 4) {
-        // Atlanan fazdan bir sonraki faza geç
-        TestPhase yeniFaz;
-        String logMesaji;
-
-        switch (atlananFaz) {
-          case 0:
-            yeniFaz = TestPhase.phase1;
-            logMesaji = 'FAZ 0 atlandı → FAZ 1 başlıyor';
-            break;
-          case 1:
-            yeniFaz = TestPhase.phase2;
-            logMesaji = 'FAZ 1 atlandı → FAZ 2 başlıyor';
-            break;
-          case 2:
-            yeniFaz = TestPhase.phase3;
-            logMesaji = 'FAZ 2 atlandı → FAZ 3 başlıyor';
-            break;
-          case 3:
-            yeniFaz = TestPhase.phase4;
-            logMesaji = 'FAZ 3 atlandı → FAZ 4 başlıyor';
-            break;
-          case 4:
-            yeniFaz = TestPhase.completed;
-            logMesaji = 'FAZ 4 atlandı → TEST TAMAMLANDI';
-
-            // ✅ FAZ 4 atlandıysa waitingReport state'ine geç
-            if (_currentTestState == TestState.running) {
-              _setTestState(TestState.waitingReport, message: 'FAZ 4 atlandı');
-            }
-            break;
-          default:
-            return;
-        }
-
-        _currentPhase = yeniFaz;
-        logs.add('⏩ $logMesaji');
-        notifyListeners();
-      }
-    }
-  }
-
   void _processWaitingReportStateMessage(String message) {
     // Rapor beklerken mesajları topla
     _collectedReport += message + '\n';
@@ -1434,6 +932,34 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  void _handlePhaseTransition(String message) {
+    if (message.contains("FAZ 0 tamamlandi") || message.contains("FAZ 0 tamamlandı")) {
+      _currentPhase = TestPhase.phase0;
+      logs.add('FAZ 0 tamamlandı → FAZ 1 başlıyor');
+    }
+    else if (message.contains("FAZ 1 tamamlandi") || message.contains("FAZ 1 tamamlandı")) {
+      _currentPhase = TestPhase.phase1;
+      logs.add('FAZ 1 tamamlandı → FAZ 2 başlıyor');
+    }
+    else if (message.contains("FAZ 2 tamamlandi") || message.contains("FAZ 2 tamamlandı")) {
+      _currentPhase = TestPhase.phase2;
+      logs.add('FAZ 2 tamamlandı → FAZ 3 başlıyor');
+    }
+    else if (message.contains("FAZ 3 tamamlandi") || message.contains("FAZ 3 tamamlandı")) {
+      _currentPhase = TestPhase.phase3;
+      logs.add('FAZ 3 tamamlandı → FAZ 4 başlıyor');
+    }
+    else if (message.contains("FAZ 4 tamamlandi") || message.contains("FAZ 4 tamamlandı")) {
+      _currentPhase = TestPhase.phase4;
+      logs.add('FAZ 4 tamamlandı → Test tamamlanıyor');
+    }
+    else if (message.contains("TEST TAMAMLANDI") || message.contains("MEKATRONİK SAĞLIK RAPORU")) {
+      _currentPhase = TestPhase.completed;
+    }
+
+    notifyListeners();
+  }
+
   void _processParsingReportStateMessage(String message) {
     // Parsing sırasında gelen ek mesajları işle (gerekirse)
     _collectedReport += message + '\n';
@@ -1443,6 +969,7 @@ class AppState extends ChangeNotifier {
     // Diğer state'lerde genel mesaj işleme
     _parsePressureData(message);
     _parseGearData(message);
+    _parseValveStates(message);
   }
 
   void _parsePressureData(String message) {
@@ -1491,32 +1018,40 @@ class AppState extends ChangeNotifier {
       _currentVites = newGear;
       selectedGear = newGear;
 
-      updateValvesByGear(newGear);
-
-      // K1K2 modu aktifse valf durumlarını güncelle
-      if (isK1K2Mode) {
-        _updateK1K2ValveStates();
-        _sendAllValveStatesToBluetooth();
+      // Test modu aktif değilse valfleri güncelle
+      if (!isTestModeActive || mockMode) {
+        updateValvesByGear(newGear);
       }
+
+      logs.add('Vites değişti: $newGear');
+    }
+  }
+
+  void _parseValveStates(String message) {
+    // ❌ VALVES: mesajları gelmiyor, bu yüzden bu metodu değiştir
+    // Bunun yerine vites mesajlarından valf durumlarını çıkar
+    if (message.contains('. vites') || message.contains('R vites')) {
+      _updateValvesFromGearMessage(message);
     }
   }
 
 
+
+
   bool _isReportComplete(String report) {
-    // "MEKATRONİK SAĞLIK RAPORU" içeriyorsa tamamlandı say
-    if (report.contains("MEKATRONİK SAĞLIK RAPORU")) {
+    // Tam test raporu formatına göre kontrol
+    if (report.contains("===== MEKATRONİK SAĞLIK RAPORU =====")) {
       return true;
     }
 
-    // Alternatif olarak FAZ puanları ve toplam puan kontrolü
+    // Alternatif kontrol
     bool hasFazPuanlari = report.contains("FAZ 0:") &&
         report.contains("FAZ 1:") &&
         report.contains("FAZ 2:") &&
         report.contains("FAZ 3:") &&
         report.contains("FAZ 4:");
 
-    bool hasToplamPuan = report.contains("TOPLAM PUAN:") ||
-        report.contains("GENEL PUAN:");
+    bool hasToplamPuan = report.contains("TOPLAM PUAN:");
 
     return hasFazPuanlari && hasToplamPuan;
   }
@@ -1571,12 +1106,6 @@ class AppState extends ChangeNotifier {
       _sonTestModuRaporu = rapor;
       logs.add("TEST MODU RAPORU OLUŞTURULDU: Mod ${rapor.testModu}");
 
-      if (onTestModuRaporuAlindi != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          onTestModuRaporuAlindi!(rapor);
-        });
-      }
-
       // ✅ YENİ: Callback'i sadece bir kez tetikle
       if (onTestModuRaporuAlindi != null && !_testModuRaporuCallbackRegistered) {
         _testModuRaporuCallbackRegistered = true;
@@ -1626,8 +1155,8 @@ class AppState extends ChangeNotifier {
         finalPuan = int.parse(genelPuanMatch.group(1)!); // GENEL PUAN: 40.9/100
       }
 
-      // TestVerisi'ni oluştur
-      _lastParsedTest = TestVerisi(
+      // TestVerisi'ni güncelle
+      final updatedTest = TestVerisi(
         testAdi: _currentTestName,
         tarih: DateTime.now(),
         minBasinc: double.tryParse(minBasincMatch?.group(1) ?? '0') ?? _currentMinPressure,
@@ -1638,34 +1167,39 @@ class AppState extends ChangeNotifier {
         fazPuanlari: fazPuanlari,
       );
 
-      // ✅ DOĞRU: SADECE BURADA KAYDET VE STATE GÜNCELLE
-      _saveAndCompleteTest(_lastParsedTest!, TestState.completed);
+      // ✅ YENİ: Testi hemen kaydet ve callback tetikle
+      _saveParsedTest(updatedTest);
 
-      logs.add("RAPOR BAŞARIYLA PARSE EDİLDİ: ${_lastParsedTest!.puan}/100 puan");
+      // ✅ State'i completed'e geçir
+      if (_currentTestState == TestState.parsingReport) {
+        _setTestState(TestState.completed, message: 'Rapor parse edildi');
+      }
 
-      // ✅ COMPLETER'I BURADA TAMAMLA
+      logs.add("RAPOR BAŞARIYLA PARSE EDİLDİ: ${updatedTest.puan}/100 puan");
+
+      // ✅ YENİ: State machine ile test tamamlanma işlemini tetikle
       if (_testCompletionCompleter != null && !_testCompletionCompleter!.isCompleted) {
         logs.add("Rapor parsing tamamlandı - Test completer tamamlanıyor");
         _testCompletionCompleter!.complete();
       }
 
+      // ✅ YENİ: State'i completed'e geçir (eğer parsing state'inde isek)
+      if (_currentTestState == TestState.parsingReport) {
+        _setTestState(TestState.completed, message: 'Rapor parse edildi - Puan: $finalPuan');
+      }
+
     } catch (e) {
       logs.add("RAPOR PARSE HATASI: $e");
 
-      // ❌ BURAYI DA DÜZELT: _saveAndCompleteTest kullan
-      final errorTest = TestVerisi(
-        testAdi: _currentTestName,
-        tarih: DateTime.now(),
-        minBasinc: _currentMinPressure,
-        maxBasinc: _currentMaxPressure,
-        toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
-        puan: 0,
-        sonuc: "RAPOR PARSE HATASI: $e",
-      );
+      // ✅ YENİ: Hata durumunda state machine'i güncelle
+      if (_testCompletionCompleter != null && !_testCompletionCompleter!.isCompleted) {
+        _testCompletionCompleter!.completeError(Exception("Rapor parse hatası: $e"));
+      }
 
-      _saveAndCompleteTest(errorTest, TestState.error);
+      _setTestState(TestState.error, message: 'Rapor parse hatası: $e');
     }
   }
+
 
   double _calculateTotalPumpSeconds(RegExpMatch? match) {
     if (match == null) return 0;
@@ -1681,6 +1215,42 @@ class AppState extends ChangeNotifier {
     if (report.contains("DURUM: İYİ")) return "İYİ";
     if (report.contains("DURUM: MÜKEMMEL")) return "MÜKEMMEL";
     return "BELİRSİZ";
+  }
+
+  void _saveParsedTest(TestVerisi test) async {
+    await saveTest(test);
+    logs.add('✅ Parsed test kaydedildi: ${test.testAdi}');
+
+    notifyListeners();
+  }
+
+  Future<void> saveTest(TestVerisi test) async {
+    try {
+      final id = await _dbService.insertTest(test);
+
+      // ✅ YENİ: Kayıt sonrası testi yerel listeye ekle
+      final existingIndex = completedTests.indexWhere(
+              (t) => t.id == test.id ||
+              (t.testAdi == test.testAdi &&
+                  t.tarih.difference(test.tarih).inSeconds.abs() < 5)
+      );
+
+      if (existingIndex == -1) {
+        // Yeni ID'yi ata ve listeye ekle
+        final testWithId = test.copyWith(id: id);
+        completedTests.insert(0, testWithId);
+      } else {
+        // Mevcut testi güncelle
+        completedTests[existingIndex] = test.copyWith(id: id);
+      }
+
+      logs.add('✅ Test kaydedildi ve liste güncellendi: ${test.testAdi} (ID: $id)');
+      notifyListeners();
+
+    } catch (e) {
+      logs.add('❌ Test kaydetme hatası: $e');
+      rethrow;
+    }
   }
 
   void _parseFazScores(String message) {
@@ -1781,6 +1351,27 @@ class AppState extends ChangeNotifier {
     }
 
     return scores;
+  }
+
+  int _parsePuanFromCollectedData() {
+    if (_deviceScores.containsKey('total')) {
+      return _deviceScores['total']!.round();
+    }
+
+    // Loglardan puanı bulmaya çalış
+    for (String log in logs.reversed) {
+      final mekatronikMatch = RegExp(r'TOPLAM PUAN:\s*(\d+)/100').firstMatch(log);
+      if (mekatronikMatch != null) {
+        return int.parse(mekatronikMatch.group(1)!);
+      }
+
+      final genelMatch = RegExp(r'GENEL PUAN:\s*([\d.]+)/100').firstMatch(log);
+      if (genelMatch != null) {
+        return double.parse(genelMatch.group(1)!).round();
+      }
+    }
+
+    return 0; // Varsayılan puan
   }
 
   // Cihazdan puan iste
@@ -1897,13 +1488,39 @@ class AppState extends ChangeNotifier {
       minBasinc: _currentMinPressure,
       maxBasinc: _currentMaxPressure,
       toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
-      puan: 0,
+      puan: 0, // İptal edildiği için 0 puan
       sonuc: "İPTAL EDİLDİ",
     );
 
-    // ❌ ESKİ: _saveTestAndTriggerCallback(test);
-    // ✅ YENİ: Tek metod kullan
-    _saveAndCompleteTest(test, TestState.cancelled);
+    // Testi kaydet ve callback tetikle
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      saveTest(test).then((_) {
+        if (onTestCompleted != null) {
+          onTestCompleted!(test);
+        }
+      });
+    });
+  }
+
+  Future<TestVerisi> _saveFullTest() async {
+    final toplamPuan = _deviceScores['total'] ?? _calculateScoreFromFazScores();
+    final sonuc = MekatronikPuanlama.durum(toplamPuan.round());
+
+    final test = TestVerisi(
+      testAdi: _currentTestName.isNotEmpty ? _currentTestName : "Tam Test",
+      tarih: DateTime.now(),
+      minBasinc: _currentMinPressure,
+      maxBasinc: _currentMaxPressure,
+      toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
+      puan: toplamPuan.round(),
+      sonuc: sonuc,
+    );
+
+    // ✅ TESTİ HEMEN KAYDET
+    await saveTest(test);
+    logs.add('✅ Test veritabanına kaydedildi: ${test.testAdi} - ${test.puan}/100');
+
+    return test;
   }
 
   void _resetSystemAfterTest() {
@@ -1912,32 +1529,42 @@ class AppState extends ChangeNotifier {
     updateValvesByGear(gear);
     isPaused = false;
 
-    // ✅ YENİ: Timer'ları temizle
+    // ✅ YENİ: Sadece completed state'inde değil, tüm bitişlerde timer'ları temizle
     _resetAllTimers();
+
   }
 
-// Manuel valf değişikliğinde çağırın
   void toggleValve(String key) {
     if (!valveStates.containsKey(key)) return;
 
-    // ⭐ K1/K2 için özel kontrol
-    if (key == 'N435' || key == 'N439') {
-      if (!isK1K2Mode) {
-        logs.add('[K1K2] Mod kapalı - önce K1K2 modunu açın');
-        return; // ❌ K1K2 modu kapalıysa işlem yapma
-      }
-    }
-
-    // Mevcut debounce kontrolü...
     bool newState = !(valveStates[key] ?? false);
     valveStates[key] = newState;
 
     // Bluetooth komutunu gönder
-    _sendSingleValveStateToBluetooth(key, newState);
+    String bluetoothCommand = key;
 
-    // K1/K2 kurallarını uygula
+    // Özel durum: N436 ve N440 için Bluetooth komutları farklı
+    if (key == 'N436') {
+      bluetoothCommand = 'N36';
+    } else if (key == 'N440') {
+      bluetoothCommand = 'N40';
+    }
+
+    // ✅ DÜZELTİLDİ: K1 ve K2 için SADECE "K1" ve "K2" komutları (toggle)
+    else if (key == 'N435') { // K1
+      bluetoothCommand = 'K1'; // Her tıklamada sadece "K1" komutu
+    } else if (key == 'N439') { // K2
+      bluetoothCommand = 'K2'; // Her tıklamada sadece "K2" komutu
+    }
+
+    // Komutu gönder - K1/K2 için sadece komut adı, diğerleri için durum
+    if (key == 'N435' || key == 'N439') {
+      sendCommand(bluetoothCommand); // Sadece "K1" veya "K2"
+    } else {
+      sendCommand("$bluetoothCommand=${newState ? '1' : '0'}");
+    }
+
     enforceK1K2Rules();
-
     notifyListeners();
   }
 
@@ -1981,83 +1608,97 @@ class AppState extends ChangeNotifier {
     _testModeTimer = null;
     _testTimeoutTimer?.cancel();
     _testTimeoutTimer = null;
+    // ✅ YENİ EKLENDİ: Valf güncelleme timer'ını temizle
     _testModeValveUpdateTimer?.cancel();
     _testModeValveUpdateTimer = null;
-    _elapsedTestSeconds = 0; // ✅ Süreyi sıfırla
-    notifyListeners(); // ✅ UI'ı güncelle
   }
 
   void updateValvesFromMessage(String msg) {
-    if (!msg.startsWith('VALVES:')) return;
+    // ❌ BU METODU TAMAMEN DEĞİŞTİRİN - VALVES: mesajları gelmiyor
+    // Bunun yerine vites mesajlarından valf durumlarını çıkar
 
-    final data = msg.replaceFirst('VALVES:', '').split(',');
-    for (var pair in data) {
-      final parts = pair.split('=');
-      if (parts.length == 2) {
-        String key = parts[0].trim();
-        final val = parts[1].trim();
-
-        // Bluetooth mapping
-        if (key == 'N36') key = 'N436';
-        if (key == 'N40') key = 'N440';
-        if (key == 'K1') key = 'N435';
-        if (key == 'K2') key = 'N439';
-        // ✅ NB komutu için özel işlem - iki valfi birden güncelle
-        if (key == 'NB') {
-          bool state = (val == '1' || val.toLowerCase() == 'on' || val.toLowerCase() == 'true');
-          valveStates['N436'] = state;
-          valveStates['N440'] = state;
-          continue; // NB için özel işlem tamamlandı
-        }
-
-        if (valveStates.containsKey(key)) {
-          bool state = (val == '1' || val.toLowerCase() == 'on' || val.toLowerCase() == 'true');
-          valveStates[key] = state;
-        }
-      }
+    // Vites mesajlarından valf durumlarını güncelle
+    if (msg.contains('. vites') || msg.contains('R vites')) {
+      _updateValvesFromGearMessage(msg);
     }
-
-    enforceK1K2Rules();
-    notifyListeners();
   }
 
-// ✅ YENİ: NB komutu için manuel metod
-  void setNBCommand(bool value) {
-    // İki valfi birden güncelle
-    valveStates['N436'] = value;
-    valveStates['N440'] = value;
+  void _updateValvesFromGearMessage(String msg) {
+    // Vites mesajından valf durumlarını hesapla
+    String detectedGear = 'BOŞ';
 
-    // Bluetooth'a NB komutunu gönder
-    if (value) {
-      sendCommand("NBON");
-      logs.add('NB Komutu: AÇIK - N436 ve N440 açıldı');
-    } else {
-      sendCommand("NBOFF");
-      logs.add('NB Komutu: KAPALI - N436 ve N440 kapandı');
+    if (msg.contains('1. vites')) detectedGear = '1';
+    else if (msg.contains('2. vites')) detectedGear = '2';
+    else if (msg.contains('3. vites')) detectedGear = '3';
+    else if (msg.contains('4. vites')) detectedGear = '4';
+    else if (msg.contains('5. vites')) detectedGear = '5';
+    else if (msg.contains('6. vites')) detectedGear = '6';
+    else if (msg.contains('7. vites')) detectedGear = '7';
+    else if (msg.contains('R vites')) detectedGear = 'R';
+
+    if (detectedGear != 'BOŞ') {
+      // Vites değişti, valfleri güncelle
+      updateValvesByGear(detectedGear);
     }
-
-    notifyListeners();
   }
 
   AppState({this.mockMode = false}) {
     _startOperationTimer();
     _init();
-
-    if (mockMode) {
-      _simulateConnection();
-    }
   }
 
   Future<void> _init() async {
     await _loadPrefs();
-
-    // ✅ YENİ: Eğer bağlantı varsa listener'ı kur
-    if (isConnected) {
-      _setupBluetoothListener();
-    }
-
     notifyListeners();
   }
+
+  Future<void> initializeApp() async {
+    if (_isInitialized) return;
+
+    try {
+      print('🔄 AppState initialize başlıyor...');
+
+      // ✅ ÖNCE: Veritabanı bağlantısını kur
+      await _dbService.database;
+
+      // ✅ TABLO KONTROLÜ: Tablo yoksa oluştur
+      final tableExists = await _dbService.isTableExists();
+      if (!tableExists) {
+        print('⚠️ Tablo bulunamadı, yeniden oluşturulacak...');
+        await _dbService.recreateTable();
+      }
+
+      // ✅ SONRA: Testleri veritabanından yükle
+      await _loadTestsFromDatabase(); // ⭐ YENİ METOD
+
+      print('✅ AppState başarıyla initialize edildi');
+      print('📊 Yüklenen test sayısı: ${completedTests.length}');
+
+      _isInitialized = true;
+      notifyListeners();
+
+    } catch (e) {
+      print('❌ AppState initialize hatası: $e');
+      _isInitialized = false;
+    }
+  }
+
+// ✅ YENİ: Sadece veritabanından test yükleme
+  Future<void> _loadTestsFromDatabase() async {
+    try {
+      completedTests = await _dbService.getTests();
+      print('📊 Veritabanından ${completedTests.length} test yüklendi');
+    } catch (e) {
+      print('❌ Veritabanından test yükleme hatası: $e');
+      completedTests = [];
+    }
+  }
+
+// ❌ ESKİ METODU GÜNCELLEYİN - Sadece SharedPreferences yerine SQLite kullanın
+  Future<void> loadTestsFromLocal() async {
+    await _loadTestsFromDatabase(); // Artık sadece SQLite kullan
+  }
+
 
   void setPressureToggle(bool isNarrowRange) {
     pressureToggle = isNarrowRange;
@@ -2077,190 +1718,51 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  void setK1K2Mode(bool value) {
-    if (isK1K2Mode == value) return;
+  void setValveState(String valve, bool state) {
+    if (!valveStates.containsKey(valve)) return;
 
-    isK1K2Mode = value;
+    valveStates[valve] = state;
 
     // Bluetooth komutunu gönder
+    String bluetoothCommand = valve;
+
+    if (valve == 'N436') bluetoothCommand = 'N36';
+    if (valve == 'N440') bluetoothCommand = 'N40';
+
+    // ✅ DÜZELTİLDİ: K1 ve K2 için SADECE "K1" ve "K2" komutları
+    if (valve == 'N435') { // K1
+      bluetoothCommand = 'K1'; // Sadece "K1" komutu
+    } else if (valve == 'N439') { // K2
+      bluetoothCommand = 'K2'; // Sadece "K2" komutu
+    }
+
+    // Komutu gönder - K1/K2 için sadece komut adı
+    if (valve == 'N435' || valve == 'N439') {
+      sendCommand(bluetoothCommand); // Sadece "K1" veya "K2"
+    } else {
+      sendCommand("$bluetoothCommand=${state ? '1' : '0'}");
+    }
+
+    enforceK1K2Rules();
+    notifyListeners();
+  }
+
+  void setK1K2Mode(bool value) {
+    isK1K2Mode = value;
+
+    // 🆕 DÜZELTİLDİ: Sadece mod açılıp kapanırken ON/OFF komutları
     if (value) {
-      sendCommand("K1K2ON");
-      logs.add('K1K2 Modu: Açıldı');
-
-      // ⭐ YENİ: K1/K2 durumlarını mevcut vitese göre ayarla
-      _updateK1K2ValveStates();
+      sendCommand("K1K2ON");  // Mod açılıyorsa K1K2ON
     } else {
-      sendCommand("K1K2OFF");
-      logs.add('K1K2 Modu: Kapatıldı');
+      sendCommand("K1K2OFF"); // Mod kapanıyorsa K1K2OFF
 
-      // ⭐ YENİ: K1/K2 valflerini kapat
+      // K1K2 modu kapatıldığında K1 ve K2 valflerini kapat
       valveStates['N435'] = false;
       valveStates['N439'] = false;
     }
 
-    _sendAllValveStatesToBluetooth();
+    logs.add('K1K2 Modu: ${value ? "Açıldı (K1K2ON)" : "Kapatıldı (K1K2OFF)"}');
     notifyListeners();
-  }
-
-// YENİ METOD: K1/K2 mod değişikliğinde tüm valfleri güncelle
-  void _updateAllValveStatesForK1K2() {
-    Map<String, bool> newStates = _calculateValveStatesForCurrentGear();
-
-    newStates.forEach((key, newState) {
-      if (valveStates[key] != newState) {
-        valveStates[key] = newState;
-      }
-    });
-
-    enforceK1K2Rules();
-    // ⭐ BU SATIRI EKLEYİN:
-    notifyListeners(); // UI'ı güncelle
-  }
-
-  void _updateK1K2ValveStates() {
-    if (!isK1K2Mode) {
-      // K1K2 modu kapalıysa, her ikisini de kapat
-      valveStates['N435'] = false;
-      valveStates['N439'] = false;
-      logs.add('K1K2 Modu kapalı - K1 ve K2 valfleri kapatıldı');
-    } else {
-      // K1K2 modu açıksa, mevcut vitese göre K1/K2'yi ayarla
-      switch (gear) {
-        case '1':
-        case '3':
-        case '5':
-        case '7':
-          valveStates['N435'] = true;  // K1 aktif
-          valveStates['N439'] = false; // K2 pasif
-          break;
-        case '2':
-        case '4':
-        case '6':
-        case 'R':
-          valveStates['N435'] = false; // K1 pasif
-          valveStates['N439'] = true;  // K2 aktif
-          break;
-        default: // BOŞ
-          valveStates['N435'] = false;
-          valveStates['N439'] = false;
-      }
-      logs.add('K1K2 Valf Durumları güncellendi - Vites: $gear, K1:${valveStates['N435']}, K2:${valveStates['N439']}');
-    }
-
-    // K1/K2 kurallarını uygula
-    enforceK1K2Rules();
-
-    // UI'ı güncelle
-    notifyListeners();
-  }
-
-
-  // AppState.dart dosyasında _simulateConnection metodunu bulun ve şu şekilde değiştirin:
-
-  void _simulateConnection() {
-    isConnected = true;
-    pressure = 50;
-    gear = '1';
-    pumpOn = false;
-    testStatus = 'Hazır';
-    lastMessage = '[MOCK] Cihaz simülasyonu başladı';
-    logs.add(lastMessage);
-    notifyListeners();
-
-    final random = Random();
-    int mechatronicScore = 0;
-
-    // 🔁 DEĞİŞTİRİLDİ: 2 saniye yerine 200ms (saniyede 5 kez)
-    Timer.periodic(const Duration(milliseconds: 200), (t) {
-      // Bluetooth modunda simülasyon yapma
-      if (!mockMode) {
-        t.cancel();
-        return;
-      }
-
-      if (!isConnected) return;
-
-      // Test modu aktifse özel işlemler yap
-      if (isTestModeActive && currentTestMode > 0) {
-        // Test modu simülasyonu burada yapılacak
-        _simulateTestMode();
-        return; // Test modu aktifken normal simülasyonu atla
-      }
-
-      // 1️⃣ Normal modda basınç değeri - GÜNCELLENDİ: 42-60 bar aralığı
-      double minPressure = 42.0; // Sabit minimum basınç
-      double maxPressure = 60.0;
-
-      // Basınç toggle durumuna göre farklı dağılım
-      if (pressureToggle) {
-        // Dar aralık modu (42-52 bar)
-        pressure = 47.0 + random.nextDouble() * 5.0; // 47-52 bar arası
-      } else {
-        // Geniş aralık modu (42-60 bar)
-        pressure = minPressure + random.nextDouble() * (maxPressure - minPressure);
-      }
-
-      // 2️⃣ Vites durumuna göre valfleri ayarla (daha seyrek yapabiliriz)
-      if (random.nextInt(10) == 0) { // %10 ihtimalle vites değiştir
-        final gears = ['1', '2', '3', '4', '5', '6', '7', 'R', 'BOŞ'];
-        gear = gears[random.nextInt(gears.length)];
-        updateValvesByGear(gear);
-      }
-
-      // 3️⃣ Basınç Valfi manuel kontrol bilgisi (daha seyrek log)
-      if (random.nextInt(25) == 0) { // %4 ihtimalle log ekle
-        lastMessage =
-        '[MOCK] Güncel basınç: ${pressure.toStringAsFixed(2)} bar | N436=${valveStates['N436']} N440=${valveStates['N440']} | Vites=$gear';
-      }
-
-      // 4️⃣ Mekatronik Puan (test sırasında)
-      if (testStatus == 'Çalışıyor' && random.nextInt(50) == 0) {
-        mechatronicScore = min(100, mechatronicScore + random.nextInt(3));
-      }
-
-      enforceK1K2Rules();
-
-      // Sadece değişiklik olduğunda log ekle ve notify et
-      if (random.nextInt(10) == 0) { // %10 ihtimalle notify
-        notifyListeners();
-      }
-    });
-  }
-
-  void _simulateTestMode() {
-    // Bluetooth modunda simülasyon yapma
-    if (!mockMode) return;
-
-    if (!isTestModeActive || currentTestMode == 0) return;
-
-    // Test moduna göre vites döngüsü hızı
-    final delaySeconds = _getTestModeDelay();
-
-    // Test modu timer'ını başlat (eğer başlatılmadıysa)
-    _testModeTimer ??= Timer.periodic(
-      Duration(milliseconds: (delaySeconds * 1000).round()),
-      (timer) {
-        if (!isTestModeActive) {
-          timer.cancel();
-          _testModeTimer = null;
-          return;
-        }
-
-        // Otomatik vites döngüsü - TÜM valfler güncellenecek
-        _cycleGearsAutomatically();
-
-        // Pompayı otomatik aç (test modlarında pompa genellikle açık olur)
-        pumpOn = true;
-
-        // Basınç simülasyonu - test moduna göre değişken
-        pressure = _simulateTestModePressure();
-        logs.add(
-          'Test modu aktif: Vites $gear, Pompa: ${pumpOn ? "Açık" : "Kapalı"}',
-        );
-
-        notifyListeners();
-      },
-    );
   }
 
   // Test moduna göre gecikme süresi (saniye cinsinden)
@@ -2373,62 +1875,63 @@ class AppState extends ChangeNotifier {
     valveStates['N435'] = false;
     valveStates['N439'] = false;
 
-    // Vites -> Valf eşleştirmesi (DQ200 GERÇEK KURALLARI - DOĞRU)
+    // Vites -> Valf eşleştirmesi (DQ200 GERÇEK KURALLARI)
     switch (gear) {
       case '1':
-      // 1. Vites: n436 ve n433 aktif
+        // 1. Vites: n436 ve n433 aktif
         valveStates['N436'] = true;
         valveStates['N433'] = true;
         valveStates['N435'] = isK1K2Mode; // K1 kavraması
         break;
 
       case '2':
-      // 2. Vites: n440 ve n437 aktif
+        // 2. Vites: n440 ve n437 aktif
         valveStates['N440'] = true;
         valveStates['N437'] = true;
         valveStates['N439'] = isK1K2Mode; // K2 kavraması
         break;
 
       case '3':
-      // 3. Vites: SADECE n436 aktif
+        // 3. Vites: SADECE n436 aktif
         valveStates['N436'] = true;
         valveStates['N435'] = isK1K2Mode; // K1 kavraması
         break;
 
       case '4':
-      // 4. Vites: SADECE n440 aktif
+        // 4. Vites: SADECE n440 aktif
         valveStates['N440'] = true;
         valveStates['N439'] = isK1K2Mode; // K2 kavraması
         break;
 
       case '5':
-      // 5. Vites: n436 ve n434 aktif
+        // 5. Vites: n436 ve n434 aktif
         valveStates['N436'] = true;
         valveStates['N434'] = true;
         valveStates['N435'] = isK1K2Mode; // K1 kavraması
         break;
 
       case '6':
-      // 6. Vites: SADECE n440 aktif
+        // 6. Vites: SADECE n440 aktif
         valveStates['N440'] = true;
         valveStates['N439'] = isK1K2Mode; // K2 kavraması
         break;
 
       case '7':
-      // 7. Vites: SADECE n436 aktif
+        // 7. Vites: SADECE n436 aktif
         valveStates['N436'] = true;
         valveStates['N435'] = isK1K2Mode; // K1 kavraması
         break;
 
       case 'R':
-      // R Vitesi: n440 ve n438 aktif
+        // R Vitesi: n440 ve n438 aktif
         valveStates['N440'] = true;
         valveStates['N438'] = true;
-        valveStates['N439'] = isK1K2Mode; // K2 kavraması - R vitesi K2 ile çalışıyor!
+        valveStates['N439'] =
+            isK1K2Mode; // K2 kavraması - R vitesi K2 ile çalışıyor!
         break;
 
       default: // 'BOŞ' veya diğer durumlar
-      // Tüm valfler kapalı kalacak
+        // Tüm valfler kapalı kalacak
         break;
     }
 
@@ -2438,14 +1941,14 @@ class AppState extends ChangeNotifier {
     // Log kaydı
     logs.add(
       'Vites $gear: Valf durumları güncellendi - '
-          'N433:${valveStates['N433']}, '
-          'N434:${valveStates['N434']}, '
-          'N437:${valveStates['N437']}, '
-          'N438:${valveStates['N438']}, '
-          'N436:${valveStates['N436']}, '
-          'N440:${valveStates['N440']}, '
-          'K1:${valveStates['N435']}, '
-          'K2:${valveStates['N439']}',
+      'N433:${valveStates['N433']}, '
+      'N434:${valveStates['N434']}, '
+      'N437:${valveStates['N437']}, '
+      'N438:${valveStates['N438']}, '
+      'N436:${valveStates['N436']}, '
+      'N440:${valveStates['N440']}, '
+      'K1:${valveStates['N435']}, '
+      'K2:${valveStates['N439']}',
     );
   }
 
@@ -2471,10 +1974,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> tryConnect(
-      String address,
-      String name, {
-        int timeout = 15,
-      }) async {
+    String address,
+    String name, {
+    int timeout = 15,
+  }) async {
     connectingAddress = address;
     connectionMessage = "Bağlanılıyor: $name";
     notifyListeners();
@@ -2484,11 +1987,7 @@ class AppState extends ChangeNotifier {
       await connectFuture.timeout(Duration(seconds: timeout));
 
       isConnected = true;
-
-      // ✅ ESKİ: _sub = bt.lines.listen(_onLine);
-      // ✅ YENİ: Yeni listener'ı kullan
-      _setupBluetoothListener();
-
+      _sub = bt.lines.listen(_onLine);
       connectionMessage = "Bağlantı başarılı: $name";
       connectingAddress = null;
 
@@ -2553,23 +2052,24 @@ class AppState extends ChangeNotifier {
       final subscription = FlutterBluetoothSerial.instance
           .startDiscovery()
           .listen((r) {
-        if (!results.any((x) => x.device.address == r.device.address)) {
-          results.add(r);
-          discoveredDevices.add(r.device);
-          notifyListeners();
-        }
-      });
+            if (!results.any((x) => x.device.address == r.device.address)) {
+              results.add(r);
+              discoveredDevices.add(r.device);
+              notifyListeners();
+            }
+          });
 
       await Future.delayed(const Duration(seconds: 10));
       await subscription.cancel();
 
       // 🔍 Hedef cihazı bul
       final dqDevice = results.firstWhere(
-            (r) => (r.device.name ?? "").toLowerCase().contains("dq200"),
-        orElse: () => BluetoothDiscoveryResult(
-          device: BluetoothDevice(address: '', name: ''),
-          rssi: 0,
-        ),
+        (r) => (r.device.name ?? "").toLowerCase().contains("dq200"),
+        orElse:
+            () => BluetoothDiscoveryResult(
+              device: BluetoothDevice(address: '', name: ''),
+              rssi: 0,
+            ),
       );
 
       if (dqDevice.device.address.isNotEmpty) {
@@ -2579,13 +2079,22 @@ class AppState extends ChangeNotifier {
         await tryConnect(deviceAddress, deviceName);
       } else {
         connectionMessage =
-        "DQ200 cihazı bulunamadı. Listeden elle seçebilirsiniz.";
+            "DQ200 cihazı bulunamadı. Listeden elle seçebilirsiniz.";
       }
     } catch (e) {
       connectionMessage = "Tarama hatası: $e";
     }
 
     isScanning = false;
+    notifyListeners();
+  }
+
+  void _onLine(String line) {
+    logs.add('[${DateTime.now().toIso8601String()}] $line');
+    lastMessage = line;
+
+    updateValvesFromMessage(line);
+    _parseLine(line);
     notifyListeners();
   }
 
@@ -2597,41 +2106,70 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _updateGearAndValves(String newGear) {
-    gear = newGear;
-    _currentVites = newGear;
-    selectedGear = newGear;
+  void _parseLine(String msg) {
+    // ❌ BU SATIRI SİLİN - çift loglamaya neden oluyor
+    // logs.add('[${DateTime.now().toIso8601String()}] $msg');
 
-    // Mevcut valf durumlarını hesapla
-    Map<String, bool> newValveStates = _calculateValveStatesForCurrentGear();
+    lastMessage = msg;
+    updateValvesFromMessage(msg);
+    _parseLineContent(msg); // Tek log kaynağı bu olacak
+    notifyListeners();
+  }
 
-    // Yeni valf durumlarını uygula
-    bool hasChanges = false;
-    newValveStates.forEach((key, newState) {
-      if (valveStates[key] != newState) {
-        valveStates[key] = newState;
-        hasChanges = true;
+// YENİ: Zaman damgası olmadan mesaj içeriğini parse eden fonksiyon
+  void _parseLineContent(String msg) {
+    // Basınç güncellemesi
+    final pressureMatch = RegExp(r'Basınç:\s*([\d.]+)\s*bar').firstMatch(msg);
+    if (pressureMatch != null) {
+      pressure = double.tryParse(pressureMatch.group(1)!) ?? pressure;
 
-        // Bluetooth'a valf durumunu gönder (sadece değişenler için)
-        if (isConnected && !mockMode) {
-          _sendSingleValveStateToBluetooth(key, newState);
-        }
-      }
-    });
-
-    if (hasChanges) {
-      logs.add('[VALF] Vites $newGear için valf durumları güncellendi: '
-          'N436:${valveStates['N436']}, '
-          'N440:${valveStates['N440']}, '
-          'N433:${valveStates['N433']}, '
-          'N434:${valveStates['N434']}, '
-          'N437:${valveStates['N437']}, '
-          'N438:${valveStates['N438']}, '
-          'K1:${valveStates['N435']}, '
-          'K2:${valveStates['N439']}');
-
-      notifyListeners();
+      // Min/Max basınç güncelle
+      if (pressure < _currentMinPressure) _currentMinPressure = pressure;
+      if (pressure > _currentMaxPressure) _currentMaxPressure = pressure;
     }
+
+    // Vites parsing
+    _parseGearData(msg);
+    _parseToplamTekrar(msg);
+
+    // Test modu raporu başlangıcı
+    if (msg.contains("===== TEST BİTİŞ RAPORU =====") && !_waitingForTestModuRaporu) {
+      logs.add("TEST BİTİŞ RAPORU ALINDI - Parse ediliyor");
+      _waitingForTestModuRaporu = true;
+      _collectedTestModuRaporu = '';
+    }
+
+    // Test modu raporu toplama
+    if (_waitingForTestModuRaporu) {
+      _collectedTestModuRaporu += msg + '\n';
+      if (msg.contains("==========================") || _isTestModuRaporuComplete(_collectedTestModuRaporu)) {
+        logs.add("TEST MODU RAPORU TAMAMLANDI");
+        _parseTestModuRaporu(_collectedTestModuRaporu);
+        _waitingForTestModuRaporu = false;
+        _collectedTestModuRaporu = '';
+      }
+    }
+
+    // Tam rapor başlangıcı
+    if (msg.contains("===== MEKATRONİK SAĞLIK RAPORU =====") && !_waitingForReport) {
+      logs.add("TAM RAPOR BAŞLANGICI - Bekleme state'ine geçiliyor");
+      _setTestState(TestState.waitingReport, message: 'Tam rapor başlangıcı alındı');
+      _waitingForReport = true;
+      _collectedReport = '';
+    }
+
+    // Tam rapor toplama
+    if (_waitingForReport) {
+      _collectedReport += msg + '\n';
+      if (msg.contains("====================================") || _isReportComplete(_collectedReport)) {
+        logs.add("TAM RAPOR TAMAMLANDI - Parsing state'ine geçiliyor");
+        _setTestState(TestState.parsingReport, message: 'Tam rapor tamamlandı');
+        _waitingForReport = false;
+      }
+    }
+
+    // State machine'e mesajı ilet
+    _processMessageBasedOnState(msg);
   }
 
   bool _isTestModuRaporuComplete(String report) {
@@ -2648,34 +2186,10 @@ class AppState extends ChangeNotifier {
 
 
   Map<String, dynamic>? get currentFazBilgisi {
-    final fazNo = currentFazNo;
-
-    // HAZIR durumu için özel işlem
-    if (fazNo == -1) {
-      return {
-        'sure': 'Test başlatılacak',
-        'aciklama': 'HAZIR'
-      };
+    if (currentFazNo >= 0 && fazBilgileri.containsKey(currentFazNo)) {
+      return fazBilgileri[currentFazNo];
     }
-
-    // TAMAMLANDI durumu için özel işlem
-    if (fazNo == 5) {
-      return {
-        'sure': 'Test tamamlandı',
-        'aciklama': 'SONUÇLARI KONTROL EDİN'
-      };
-    }
-
-    // Normal fazlar
-    if (fazNo >= 0 && fazNo <= 4 && fazBilgileri.containsKey(fazNo)) {
-      return fazBilgileri[fazNo];
-    }
-
-    // Varsayılan
-    return {
-      'sure': 'Bilinmiyor',
-      'aciklama': 'Aktif faz yok'
-    };
+    return null;
   }
 
   void _sendAllValveStatesToBluetooth() {
@@ -2741,37 +2255,14 @@ class AppState extends ChangeNotifier {
   void enforceK1K2Rules() {
     // Eğer mod pasifse K1 ve K2 daima false olmalı
     if (!isK1K2Mode) {
-      bool hadChanges = false;
-      if (valveStates['N435'] == true) {
-        valveStates['N435'] = false;
-        hadChanges = true;
-      }
-      if (valveStates['N439'] == true) {
-        valveStates['N439'] = false;
-        hadChanges = true;
-      }
-      if (hadChanges) {
-        logs.add('[K1K2 KURAL] Mod kapalı - K1 ve K2 valfleri kapatıldı');
-        notifyListeners();
-      }
-    } else {
-      // K1K2 modu açıksa, mevcut vitese göre K1/K2'yi otomatik ayarla
-      bool k1ShouldBeActive = _shouldK1BeActive(gear);
-      bool k2ShouldBeActive = _shouldK2BeActive(gear);
-
-      if (valveStates['N435'] != k1ShouldBeActive) {
-        valveStates['N435'] = k1ShouldBeActive;
-      }
-      if (valveStates['N439'] != k2ShouldBeActive) {
-        valveStates['N439'] = k2ShouldBeActive;
-      }
+      valveStates['N435'] = false;
+      valveStates['N439'] = false;
     }
 
     // Güvenlik: Aynı anda hem K1 hem K2 aktif olamaz
     if (valveStates['N435'] == true && valveStates['N439'] == true) {
       valveStates['N439'] = false;
-      logs.add('[K1K2 GÜVENLİK] K1 ve K2 aynı anda aktif olamaz - K2 kapatıldı');
-      notifyListeners();
+      logs.add('[GÜVENLİK] K1 ve K2 aynı anda aktif olamaz - K2 kapatıldı');
     }
   }
 
@@ -2784,18 +2275,6 @@ class AppState extends ChangeNotifier {
     }
 
     notifyListeners();
-  }
-
-  void _setupBluetoothListener() {
-    // Önceki listener'ı temizle
-    _sub?.cancel();
-
-    _sub = bt.lines.listen((message) {
-      _handleIncomingMessage(message);
-
-      // External callback'leri tetikle
-      _triggerReportCallbacks(message);
-    });
   }
 
   void clearLogs() {

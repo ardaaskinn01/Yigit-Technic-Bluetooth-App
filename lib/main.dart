@@ -12,85 +12,52 @@ import 'services/database.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ Önce izinleri kontrol et
+  // ✅ ÖNCE: İzinleri kontrol et
   await checkBluetoothPermissions();
 
-  // ✅ Veritabanını başlat
-  await _initializeDatabase();
-
-  // ✅ AppState'i oluştur ve INITIALIZE ET
+  // ✅ SONRA: AppState'i oluştur ve initialize et
   final appState = AppState(mockMode: false);
-  await appState.initializeApp(); // ⭐ BU SATIRI EKLEYİN
+  await appState.initializeApp(); // ⭐ BU ÖNCE GELMELİ
 
   runApp(
-    Provider<AppState>.value(
-      value: appState,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => appState),
+      ],
       child: const MyApp(),
     ),
   );
 }
 
-// ✅ Veritabanı başlatma (DÜZELTİLMİŞ)
-Future<void> _initializeDatabase() async {
-  try {
-    final dbService = DatabaseService();
-    await dbService.database; // Database'i aç
-
-    // Tablo yoksa kontrol et
-    final tableExists = await dbService.isTableExists();
-    if (!tableExists) {
-      print('⚠️ Tablo bulunamadı, yeniden oluşturulacak...');
-      // ⭐ DÜZELTİLDİ: Sadece veritabanını yeniden başlat
-      await dbService.recreateTable(); // Bu metodu DatabaseService'e ekleyeceğiz
-    }
-
-    // Basit test sayısı kontrolü
-    final tests = await dbService.getTests();
-    print('📊 Veritabanında ${tests.length} test kaydı bulundu');
-
-  } catch (e) {
-    print('❌ Veritabanı başlatma hatası: $e');
-    // Hata durumunda database'i resetle
-    await _resetDatabase();
-  }
-}
-
-// ⭐ YENİ: Database resetleme fonksiyonu
-Future<void> _resetDatabase() async {
-  try {
-    final dbService = DatabaseService();
-    final db = await dbService.database;
-    await db.close();
-    await deleteDatabase(join(await getDatabasesPath(), 'mekatronik_tests.db'));
-    print('✅ Veritabanı resetlendi');
-  } catch (e) {
-    print('❌ Veritabanı resetleme hatası: $e');
-  }
-}
-
 Future<void> checkBluetoothPermissions() async {
-  // Bluetooth tarama izni
+  // Bluetooth izinleri
   if (await Permission.bluetoothScan.isDenied) {
     await Permission.bluetoothScan.request();
   }
-
-  // Bluetooth bağlantı izni
   if (await Permission.bluetoothConnect.isDenied) {
     await Permission.bluetoothConnect.request();
   }
-
-  // Konum izni (bazı cihazlarda gerekli)
   if (await Permission.location.isDenied) {
     await Permission.location.request();
   }
 
-  // Reddedildiyse tekrar dene
-  if (!await Permission.bluetoothScan.isGranted ||
-      !await Permission.bluetoothConnect.isGranted ||
-      !await Permission.location.isGranted) {
-    print("⚠️ Bluetooth izinleri eksik!");
-  } else {
-    print("✅ Bluetooth izinleri verildi.");
+  // ✅ YENİ: Storage izinleri
+  if (await Permission.storage.isDenied) {
+    await Permission.storage.request();
+  }
+  if (await Permission.manageExternalStorage.isDenied) {
+    await Permission.manageExternalStorage.request();
+  }
+
+  // İzin durumunu kontrol et
+  final bluetoothGranted = await Permission.bluetoothConnect.isGranted;
+  final storageGranted = await Permission.storage.isGranted;
+
+  print("✅ Bluetooth izni: $bluetoothGranted");
+  print("✅ Storage izni: $storageGranted");
+
+  if (!bluetoothGranted || !storageGranted) {
+    print("⚠️ Gerekli izinler eksik!");
   }
 }
 
@@ -99,6 +66,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final appState = Provider.of<AppState>(context, listen: false);
+
     return MaterialApp(
       title: 'DQ200 Controller',
       debugShowCheckedModeBanner: false,
@@ -108,20 +77,13 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
+        // 🔹 Artık Home yerine MainHomeScreen açılıyor
         '/': (_) => MainHomeScreen(),
         '/reports': (_) => const RaporlarEkrani(),
         '/settings': (_) => const SettingsScreen(),
       },
-      // ⭐ YENİ: Navigator observer ekleyerek route değişikliklerini takip et
-      navigatorObservers: [RouteObserver<ModalRoute<void>>()],
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaleFactor: 1.0,
-          ),
-          child: child!,
-        );
-      },
     );
   }
+
+
 }

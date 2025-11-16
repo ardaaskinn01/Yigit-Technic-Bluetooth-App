@@ -14,38 +14,6 @@ class K1K2SystemControl extends StatefulWidget {
 }
 
 class _K1K2SystemControlState extends State<K1K2SystemControl> {
-  bool _isProcessing = false; // ⭐ YENİ: İşlem flag'i
-
-  void _handleValveToggle(String actualValveKey, bool isK1K2ModeEnabled) async {
-    if (_isProcessing) return;
-    _isProcessing = true;
-
-    try {
-      // ❌ ESKİ: Otomatik mod açma - KALDIR
-      // ✅ YENİ: Sadece toggle işlemi
-      if (isK1K2ModeEnabled) {
-        widget.app.toggleValve(actualValveKey);
-        print('[DEBUG] ToggleValve: $actualValveKey');
-      } else {
-        // K1K2 modu kapalıysa sadece modu aç
-        widget.app.setK1K2Mode(true);
-      }
-
-      await Future.delayed(Duration(milliseconds: 200));
-    } finally {
-      _isProcessing = false;
-    }
-  }
-
-  bool _shouldKValveBeActiveForGear(String valve, String gear) {
-    if (valve == 'K1') {
-      return ['1', '3', '5', '7'].contains(gear); // K1: 1,3,5,7. vitesler
-    } else if (valve == 'K2') {
-      return ['2', '4', '6', 'R'].contains(gear); // K2: 2,4,6,R vitesler
-    }
-    return false;
-  }
-
   @override
   Widget build(BuildContext context) {
     final isK1K2Active = widget.app.isK1K2Mode;
@@ -72,31 +40,23 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
           const SizedBox(height: 10),
 
           // Ana Switch - K1K2 Modu
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'K1K2 Modu:',
-                style: TextStyle(color: Colors.white, fontSize: 12),
-              ),
-              Switch(
-                value: isK1K2Active,
-                activeColor: Colors.lightGreenAccent,
-                inactiveTrackColor: Colors.white.withOpacity(0.3),
-                inactiveThumbColor: Colors.grey[400],
-                onChanged: (value) {
-                  widget.app.setK1K2Mode(value);
-                },
-              ),
-            ],
+          Switch(
+            value: isK1K2Active,
+            activeColor: Colors.lightGreenAccent,
+            inactiveTrackColor: Colors.white.withOpacity(0.3),
+            inactiveThumbColor: Colors.grey[400],
+            onChanged: (value) {
+              // AppState üzerinden merkezi olarak yönet
+              widget.app.setK1K2Mode(value);
+            },
           ),
 
-          // K1 K2 Butonları
+          // K1 K2 Butonları - HER ZAMAN TIKLANABİLİR
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildValveButton('K1', k1Active, isK1K2Active),
-              _buildValveButton('K2', k2Active, isK1K2Active),
+              _buildValveButton('K1', k1Active),
+              _buildValveButton('K2', k2Active),
             ],
           ),
           const SizedBox(height: 4),
@@ -104,8 +64,8 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
           // Durum bilgisi
           Text(
             isK1K2Active
-                ? "K1: ${k1Active ? 'Aktif' : 'Pasif'}, K2: ${k2Active ? 'Aktif' : 'Pasif'}"
-                : "K1K2 Modu Kapalı",
+                ? "Debriyaj aktif"
+                : "Debriyaj deaktif",
             style: TextStyle(
               fontSize: 10,
               color: isK1K2Active ? Colors.lightGreenAccent : Colors.orangeAccent,
@@ -117,43 +77,23 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
     );
   }
 
-  Widget _buildValveButton(String valve, bool isActive, bool isK1K2ModeEnabled) {
-    // Butonun gerçek valve key'ini belirle - SADECE N435 ve N439 kullan
-    String actualValveKey = valve == 'K1' ? 'N435' : 'N439';
-    bool actualState = widget.app.valveStates[actualValveKey] ?? false;
-
-    Color backgroundColor;
-    Color borderColor;
-
-    if (!isK1K2ModeEnabled) {
-      backgroundColor = Colors.grey.withOpacity(0.3);
-      borderColor = Colors.grey;
-    } else if (actualState) {
-      backgroundColor = Colors.lightBlueAccent.withOpacity(0.8);
-      borderColor = Colors.lightBlueAccent;
-    } else {
-      backgroundColor = Colors.white.withOpacity(0.15);
-      borderColor = Colors.grey.withOpacity(0.5);
-    }
+  Widget _buildValveButton(String valve, bool isActive) {
+    // K1 ve K2 için doğru valve key'leri
+    String valveKey = valve == 'K1' ? 'N435' : 'N439';
 
     return ElevatedButton(
       onPressed: () {
-        // K1K2 modu kapalıysa buton pasif
-        if (!isK1K2ModeEnabled) return;
-
-        // Mevcut durumu kontrol et
-        if (actualState == (valve == 'K1')) {
-          return; // Zaten istenen state'de
-        }
-
-        _handleValveToggle(actualValveKey, isK1K2ModeEnabled);
+        // Manuel K1/K2 toggle - her zaman tıklanabilir
+        widget.app.toggleValve(valveKey);
       },
       style: ElevatedButton.styleFrom(
-        backgroundColor: backgroundColor,
+        backgroundColor: isActive
+            ? Colors.lightBlueAccent.withOpacity(0.8)
+            : Colors.white.withOpacity(0.15),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
           side: BorderSide(
-            color: borderColor,
+            color: isActive ? Colors.lightBlueAccent : Colors.grey.withOpacity(0.5),
             width: 1.5,
           ),
         ),
@@ -162,7 +102,7 @@ class _K1K2SystemControlState extends State<K1K2SystemControl> {
       child: Text(
         valve,
         style: TextStyle(
-          color: isK1K2ModeEnabled ? Colors.white : Colors.grey,
+          color: isActive ? Colors.white : Colors.white70,
           fontWeight: FontWeight.bold,
           fontSize: 14,
         ),

@@ -16,15 +16,32 @@ class DatabaseService {
   }
 
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'mekatronik_tests.db');
+    try {
+      String path = join(await getDatabasesPath(), 'mekatronik_tests.db');
+      print('[DATABASE] Veritabanı yolu: $path');
 
-    print('[DATABASE] Veritabanı yolu: $path');
+      // Dizin erişimini test et
+      final databaseDir = await getDatabasesPath();
+      print('[DATABASE] Dizin erişilebilir: $databaseDir');
 
-    return await openDatabase(
-      path,
-      version: 1,
-      onCreate: _createDatabase,
-    );
+      return await openDatabase(
+        path,
+        version: 1,
+        onCreate: _createDatabase,
+        onOpen: (db) {
+          print('[DATABASE] Veritabanı başarıyla açıldı');
+        },
+      );
+    } catch (e) {
+      print('[DATABASE] ❌ Veritabanı başlatma hatası: $e');
+
+      // Daha spesifik hata mesajları
+      if (e.toString().contains('permission') || e.toString().contains('izin')) {
+        print('[DATABASE] ⚠️ STORAGE İZİN HATASI! Lütfen uygulama izinlerini kontrol edin.');
+      }
+
+      rethrow;
+    }
   }
 
   Future<void> createDatabase(Database db, int version) async {
@@ -60,21 +77,32 @@ class DatabaseService {
       final id = await db.insert('tests', test.toDbMap());
       print('[DATABASE] ✅ Test kaydedildi: ${test.testAdi} (ID: $id)');
 
-      // ✅ KAYIT SONRASI DOĞRULAMA
+      // ✅ GÜÇLENDİRİLMİŞ DOĞRULAMA
       final verify = await db.query('tests', where: 'id = ?', whereArgs: [id]);
       if (verify.isEmpty) {
         print('[DATABASE] ❌ HATA: Test kaydı doğrulanamadı!');
+        throw Exception('Test kaydı doğrulanamadı');
       } else {
-        print('[DATABASE] ✅ Test kaydı doğrulandı');
+        print('[DATABASE] ✅ Test kaydı doğrulandı - ID: $id');
 
-        // Tüm kayıtları say
-        final allRecords = await db.query('tests');
-        print('[DATABASE] 📊 Toplam kayıt sayısı: ${allRecords.length}');
+        // Kayıt detaylarını logla
+        final record = verify.first;
+        print('[DATABASE] 📋 Kayıt detayları:');
+        print('   - Test Adı: ${record['testAdi']}');
+        print('   - Puan: ${record['puan']}');
+        print('   - Tarih: ${DateTime.fromMillisecondsSinceEpoch(record['tarih'] as int)}');
       }
 
       return id;
     } catch (e) {
       print('[DATABASE] ❌ Kayıt hatası: $e');
+
+      // Hatayı daha detaylı logla
+      if (e is DatabaseException) {
+        print('[DATABASE] ❌ DatabaseException: ${e.toString()}');
+        print('[DATABASE] ❌ Result: ${e.getResultCode()}');
+      }
+
       rethrow;
     }
   }
@@ -83,20 +111,18 @@ class DatabaseService {
   Future<List<TestVerisi>> getTests() async {
     final db = await database;
 
-    print('[DATABASE] Testler yükleniyor...');
-
     try {
       final List<Map<String, dynamic>> maps = await db.query(
           'tests',
           orderBy: 'tarih DESC',
-          limit: 100 // Maksimum 100 kayıt
+          limit: 150
       );
 
       print('[DATABASE] 📊 ${maps.length} test yüklendi');
 
-      // Debug için ilk 3 kaydı göster
-      for (int i = 0; i < maps.length && i < 3; i++) {
-        print('[DATABASE]   ${i + 1}. ${maps[i]['testAdi']} - ${DateTime.fromMillisecondsSinceEpoch(maps[i]['tarih'] as int)}');
+      // Debug için tüm kayıtları göster
+      for (int i = 0; i < maps.length; i++) {
+        print('[DATABASE]   ${i + 1}. ID:${maps[i]['id']} - ${maps[i]['testAdi']}');
       }
 
       return List.generate(maps.length, (i) {
