@@ -17,6 +17,7 @@ class _TestScreenState extends State<TestScreen> {
   final TextEditingController _nameController = TextEditingController();
   bool _isDialogShowing = false;
   TestVerisi? _lastCompletedTest;
+  bool _callbackRegistered = false;
 
   @override
   void initState() {
@@ -27,17 +28,20 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   void _setupCallbacks() {
+    if (_callbackRegistered) return;
+
     final app = Provider.of<AppState>(context, listen: false);
     app.onTestCompleted = _onTestCompleted;
+    _callbackRegistered = true;
     print('[DEBUG] TestScreen: Callback ayarlandı');
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Güvenlik için callback'i tekrar ayarla
     _setupCallbacks();
   }
+
 
   @override
   void dispose() {
@@ -47,15 +51,17 @@ class _TestScreenState extends State<TestScreen> {
   }
 
   void _onTestCompleted(TestVerisi test) {
-    print('[DEBUG] _onTestCompleted called:');
-    print('  - Test Adı: ${test.testAdi}');
-    print('  - Puan: ${test.puan}');
-    print('  - Sonuç: ${test.sonuc}');
+    print('[DEBUG] _onTestCompleted called: ${test.testAdi}');
 
-    // Son testi sakla
+    // Aynı test için callback birden fazla kez tetiklenirse engelle
+    if (_lastCompletedTest?.testAdi == test.testAdi &&
+        _lastCompletedTest!.tarih.difference(test.tarih).inSeconds < 5) {
+      print('[DEBUG] Aynı test için callback zaten tetiklenmiş, engellendi');
+      return;
+    }
+
     _lastCompletedTest = test;
 
-    // Dialog zaten gösteriliyorsa tekrar gösterme
     if (_isDialogShowing) {
       print('[DEBUG] Dialog already showing, skipping');
       return;
@@ -274,21 +280,22 @@ class _TestScreenState extends State<TestScreen> {
                     ),
                   ),
 
-                  // DURAKLAT/DEVAM Butonu
                   ElevatedButton.icon(
-                    onPressed: isRunning ? () => app.pauseTest() :
-                    isPaused ? () => app.resumeTest() : null,
-                    icon: Icon(
-                        isPaused ? Icons.play_arrow : Icons.pause,
-                        color: Colors.white
-                    ),
-                    label: Text(
-                        isPaused ? "Devam" : "Duraklat",
-                        style: const TextStyle(color: Colors.white, fontSize: 16)
-                    ),
+                    onPressed: () {
+                      app.sendCommand("amk");
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Faz atlama komutu gönderildi"),
+                          backgroundColor: Colors.blue,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.skip_next, color: Colors.white),
+                    label: const Text("Fazı Atla",
+                        style: TextStyle(color: Colors.white, fontSize: 14)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      backgroundColor: Colors.blueAccent,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                   ),
 
@@ -307,78 +314,6 @@ class _TestScreenState extends State<TestScreen> {
               ),
 
               const SizedBox(height: 16),
-
-              // Test Kontrol Butonları (Sadece çalışırken)
-              if (isRunning || isPaused) ...[
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        app.sendCommand("amk");
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Faz atlama komutu gönderildi"),
-                            backgroundColor: Colors.blue,
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.skip_next, color: Colors.white),
-                      label: const Text("Fazı Atla",
-                          style: TextStyle(color: Colors.white, fontSize: 14)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueAccent,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (BuildContext context) {
-                            return AlertDialog(
-                              backgroundColor: const Color(0xFF003366),
-                              title: const Text("Testi İptal Et",
-                                  style: TextStyle(color: Colors.white)),
-                              content: const Text("Testi iptal etmek istediğinizden emin misiniz?",
-                                  style: TextStyle(color: Colors.white70)),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.of(context).pop(),
-                                  child: const Text("Hayır",
-                                      style: TextStyle(color: Colors.white)),
-                                ),
-                                TextButton(
-                                  onPressed: () {
-                                    app.stopTest();
-                                    Navigator.of(context).pop();
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text("Test iptal edildi"),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  },
-                                  child: const Text("Evet",
-                                      style: TextStyle(color: Colors.red)),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                      },
-                      icon: const Icon(Icons.cancel, color: Colors.white),
-                      label: const Text("Testi İptal Et",
-                          style: TextStyle(color: Colors.white, fontSize: 14)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.redAccent,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ],
 
               // Test Durumu Container'ı
               Container(

@@ -51,18 +51,19 @@ class DatabaseService {
   Future<void> _createDatabase(Database db, int version) async {
     print('[DATABASE] Tablo oluşturuluyor...');
     await db.execute('''
-      CREATE TABLE tests(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        testAdi TEXT NOT NULL,
-        tarih INTEGER NOT NULL,
-        minBasinc REAL NOT NULL,
-        maxBasinc REAL NOT NULL,
-        toplamPompaSuresi REAL NOT NULL,
-        puan INTEGER NOT NULL,
-        sonuc TEXT NOT NULL,
-        fazPuanlari TEXT
-      )
-    ''');
+    CREATE TABLE tests(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      testAdi TEXT NOT NULL,
+      tarih INTEGER NOT NULL,
+      minBasinc REAL NOT NULL,
+      maxBasinc REAL NOT NULL,
+      toplamPompaSuresi REAL NOT NULL,
+      puan INTEGER NOT NULL,
+      sonuc TEXT NOT NULL,
+      fazPuanlari TEXT,
+      DetayliFazVerileri TEXT
+    )
+  ''');
     print('[DATABASE] Tablo başarıyla oluşturuldu');
   }
 
@@ -140,6 +141,19 @@ class DatabaseService {
       await db.execute('DROP TABLE IF EXISTS tests');
       await _createDatabase(db, 1);
       print('[DATABASE] Tablo başarıyla yeniden oluşturuldu');
+
+      // Tablo oluştuktan sonra kontrol et
+      final exists = await isTableExists();
+      print('[DATABASE] Tablo kontrolü: ${exists ? "VAR" : "YOK"}');
+
+      if (exists) {
+        // Tablo sütunlarını kontrol et
+        final columns = await db.rawQuery('PRAGMA table_info(tests)');
+        print('[DATABASE] Tablo sütunları:');
+        for (final column in columns) {
+          print('   - ${column['name']} (${column['type']})');
+        }
+      }
     } catch (e) {
       print('[DATABASE] ❌ Tablo yeniden oluşturma hatası: $e');
       rethrow;
