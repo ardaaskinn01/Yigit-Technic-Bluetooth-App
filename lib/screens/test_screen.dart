@@ -43,7 +43,6 @@ class _TestScreenState extends State<TestScreen> {
   void dispose() {
     // Memory leak'i önle
     final app = Provider.of<AppState>(context, listen: false);
-    app.onTestCompleted = null;
     super.dispose();
   }
 

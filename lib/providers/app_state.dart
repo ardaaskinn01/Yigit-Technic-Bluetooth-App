@@ -89,7 +89,7 @@ class AppState extends ChangeNotifier {
 
   // State geçişleri için timer
   Timer? _stateTimeoutTimer;
-  final Duration _stateTimeout = Duration(minutes: 2); // State timeout
+  final Duration _stateTimeout = Duration(minutes: 5); // State timeout
 
   // Önceki state (geri dönüş için)
   TestState? _previousState;
@@ -404,8 +404,25 @@ class AppState extends ChangeNotifier {
     testFinished = true;
     testStatus = 'Hata';
 
-    // Hata durumunda sistem sıfırlama
+    // ✅ YENİ: Hatalı testi kaydet
+    _saveErrorTest('Test hatayla sonlandı');
+
     _resetSystemAfterTest();
+  }
+
+// ✅ YENİ: Hata testi kaydetme metodu
+  void _saveErrorTest(String errorMessage) {
+    final test = TestVerisi(
+      testAdi: _currentTestName.isNotEmpty ? _currentTestName : "Hatalı Test",
+      tarih: DateTime.now(),
+      minBasinc: _currentMinPressure,
+      maxBasinc: _currentMaxPressure,
+      toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
+      puan: 0,
+      sonuc: "HATA: $errorMessage",
+    );
+
+    _saveTestAndTriggerCallback(test);
   }
 
   void _onTestCancelled() {
@@ -435,18 +452,19 @@ class AppState extends ChangeNotifier {
     logs.add('[STATE TIMEOUT] ${_stateToString(_currentTestState)} state\'i timeouta uğradı');
 
     switch (_currentTestState) {
-      case TestState.waitingReport:
-        logs.add('Rapor timeout - manuel isteniyor');
-        _requestDeviceScore();
+      case TestState.running:
+      // Çalışırken timeout olursa faz atlamayı dene
+        logs.add('⏰ Running state timeout - faz atlama deneniyor');
+        sendCommand("FAZ_ATLA");
 
-        // ✅ DÜZELTİLDİ: Timeout durumunda da testi kaydet
-        _saveTimeoutTest();
+        // 30 saniye daha bekle
+        _startStateTimeout();
         break;
 
-      case TestState.starting:
-        logs.add('Test başlatma timeout');
-        _setTestState(TestState.error, message: 'Başlatma timeout');
-        _saveErrorTest('Başlatma timeout');
+      case TestState.waitingReport:
+        logs.add('⏰ Rapor timeout - manuel isteniyor');
+        _requestDeviceScore();
+        _saveTimeoutTest();
         break;
 
       default:
@@ -470,29 +488,25 @@ class AppState extends ChangeNotifier {
     _saveTestAndTriggerCallback(test);
   }
 
-// ✅ YENİ: Hata testi kaydetme
-  void _saveErrorTest(String errorMessage) {
-    final test = TestVerisi(
-      testAdi: _currentTestName.isNotEmpty ? _currentTestName : "Hatalı Test",
-      tarih: DateTime.now(),
-      minBasinc: _currentMinPressure,
-      maxBasinc: _currentMaxPressure,
-      toplamPompaSuresi: faz0Sure + faz4PompaSuresi,
-      puan: 0,
-      sonuc: "HATA: $errorMessage",
-    );
-
-    _saveTestAndTriggerCallback(test);
-  }
-
 // ✅ YENİ: Ortak kaydetme metodu
   void _saveTestAndTriggerCallback(TestVerisi test) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      saveTest(test).then((_) {
+    // ✅ HEMEN kaydet, async işlemi bekleme
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await saveTest(test);
+        logs.add('✅ Test kaydedildi: ${test.testAdi}');
+
+        // Callback'i tetikle
         if (onTestCompleted != null) {
           onTestCompleted!(test);
         }
-      });
+      } catch (e) {
+        logs.add('❌ Test kaydetme hatası: $e');
+        // Hata durumunda bile callback tetikle
+        if (onTestCompleted != null) {
+          onTestCompleted!(test);
+        }
+      }
     });
   }
 
@@ -780,10 +794,13 @@ class AppState extends ChangeNotifier {
   }
 
   void _startTestTimer() {
-    _testTimer?.cancel();
+    _testTimer?.cancel(); // Önceki timer'ı temizle
     _elapsedTestSeconds = 0;
     _testTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (isTesting && !isPaused) {
+      // Tüm aktif test durumlarında süreyi artır
+      if (_currentTestState == TestState.running ||
+          _currentTestState == TestState.waitingReport ||
+          _currentTestState == TestState.parsingReport) {
         _elapsedTestSeconds++;
         notifyListeners();
       }
@@ -878,7 +895,7 @@ class AppState extends ChangeNotifier {
   void _processRunningStateMessage(String message) {
     // Test çalışırken gelen mesajları işle
     if (message.contains("atlandi!") || message.contains("atlandı!")) {
-      logs.add('🔍 Atlanan faz mesajı tespit edildi');
+      logs.add('🔍 Atlanan faz mesajı tespit edildi: $message');
       _handlePhaseTransition(message);
     }
     // Test çalışırken gelen mesajları işle
@@ -933,29 +950,40 @@ class AppState extends ChangeNotifier {
   }
 
   void _handlePhaseTransition(String message) {
-    if (message.contains("FAZ 0 tamamlandi") || message.contains("FAZ 0 tamamlandı")) {
-      _currentPhase = TestPhase.phase0;
-      logs.add('FAZ 0 tamamlandı → FAZ 1 başlıyor');
+    // ✅ GELİŞTİRİLDİ: Akıllı faz tespiti - mesajın içeriğine göre hangi faz olduğunu anla
+    if (message.contains("FAZ 0") && (message.contains("tamamlandi") || message.contains("tamamlandı") || message.contains("atlandi"))) {
+      _currentPhase = TestPhase.phase1; // ✅ FAZ 0 tamamlandı/atlandı → FAZ 1'e geç
+      logs.add('FAZ 0 tamamlandı/atlandı → FAZ 1 başlıyor');
     }
-    else if (message.contains("FAZ 1 tamamlandi") || message.contains("FAZ 1 tamamlandı")) {
-      _currentPhase = TestPhase.phase1;
-      logs.add('FAZ 1 tamamlandı → FAZ 2 başlıyor');
+    else if (message.contains("FAZ 1") && (message.contains("tamamlandi") || message.contains("tamamlandı") || message.contains("atlandi"))) {
+      _currentPhase = TestPhase.phase2; // ✅ FAZ 1 tamamlandı/atlandı → FAZ 2'ye geç
+      logs.add('FAZ 1 tamamlandı/atlandı → FAZ 2 başlıyor');
     }
-    else if (message.contains("FAZ 2 tamamlandi") || message.contains("FAZ 2 tamamlandı")) {
-      _currentPhase = TestPhase.phase2;
-      logs.add('FAZ 2 tamamlandı → FAZ 3 başlıyor');
+    else if (message.contains("FAZ 2") && (message.contains("tamamlandi") || message.contains("tamamlandı") || message.contains("atlandi"))) {
+      _currentPhase = TestPhase.phase3; // ✅ FAZ 2 tamamlandı/atlandı → FAZ 3'e geç
+      logs.add('FAZ 2 tamamlandı/atlandı → FAZ 3 başlıyor');
     }
-    else if (message.contains("FAZ 3 tamamlandi") || message.contains("FAZ 3 tamamlandı")) {
-      _currentPhase = TestPhase.phase3;
-      logs.add('FAZ 3 tamamlandı → FAZ 4 başlıyor');
+    else if (message.contains("FAZ 3") && (message.contains("tamamlandi") || message.contains("tamamlandı") || message.contains("atlandi"))) {
+      _currentPhase = TestPhase.phase4; // ✅ FAZ 3 tamamlandı/atlandı → FAZ 4'e geç
+      logs.add('FAZ 3 tamamlandı/atlandı → FAZ 4 başlıyor');
     }
-    else if (message.contains("FAZ 4 tamamlandi") || message.contains("FAZ 4 tamamlandı")) {
-      _currentPhase = TestPhase.phase4;
-      logs.add('FAZ 4 tamamlandı → Test tamamlanıyor');
+    else if (message.contains("FAZ 4") && (message.contains("tamamlandi") || message.contains("tamamlandı") || message.contains("atlandi"))) {
+      _currentPhase = TestPhase.completed; // ✅ FAZ 4 tamamlandı/atlandı → Test tamamlandı
+      logs.add('FAZ 4 tamamlandı/atlandı → Test tamamlanıyor');
+      // FAZ 4 tamamlandığında rapor beklemeye geç
+      _setTestState(TestState.waitingReport, message: 'FAZ 4 tamamlandı');
     }
     else if (message.contains("TEST TAMAMLANDI") || message.contains("MEKATRONİK SAĞLIK RAPORU")) {
       _currentPhase = TestPhase.completed;
+      logs.add('Test tamamlandı → Rapor bekleniyor');
     }
+    else {
+      // ✅ DEBUG: Anlaşılamayan faz mesajını logla
+      logs.add('⚠️ Anlaşılamayan faz mesajı: $message');
+    }
+
+    // ✅ DEBUG: Faz değişikliğini logla
+    print('[FAZ_DEBUG] Mesaj: "$message" → Yeni faz: ${_currentPhase.toString()}');
 
     notifyListeners();
   }
@@ -1351,27 +1379,6 @@ class AppState extends ChangeNotifier {
     }
 
     return scores;
-  }
-
-  int _parsePuanFromCollectedData() {
-    if (_deviceScores.containsKey('total')) {
-      return _deviceScores['total']!.round();
-    }
-
-    // Loglardan puanı bulmaya çalış
-    for (String log in logs.reversed) {
-      final mekatronikMatch = RegExp(r'TOPLAM PUAN:\s*(\d+)/100').firstMatch(log);
-      if (mekatronikMatch != null) {
-        return int.parse(mekatronikMatch.group(1)!);
-      }
-
-      final genelMatch = RegExp(r'GENEL PUAN:\s*([\d.]+)/100').firstMatch(log);
-      if (genelMatch != null) {
-        return double.parse(genelMatch.group(1)!).round();
-      }
-    }
-
-    return 0; // Varsayılan puan
   }
 
   // Cihazdan puan iste
@@ -1801,62 +1808,6 @@ class AppState extends ChangeNotifier {
     logs.add(
       'Test Mod $currentTestMode: Vites $gear\'a geçildi - Tüm valfler güncellendi',
     );
-  }
-
-  // Test moduna göre basınç simülasyonu
-  double _simulateTestModePressure() {
-    final random = Random();
-    double basePressure;
-
-    switch (currentTestMode) {
-      case 1: // Yüksek hız testi - yüksek basınç
-      case 2: // Orta-yüksek hız
-        basePressure =
-            pressureToggle
-                ? 47.0 + random.nextDouble() * 5.0
-                : // Dar aralık: 47-52
-                50.0 + random.nextDouble() * 10.0; // Geniş aralık: 50-60
-        break;
-      case 3: // FAZ 0/2 pompa kontrolü - değişken basınç
-        basePressure =
-            pressureToggle
-                ? 44.0 + random.nextDouble() * 8.0
-                : // Dar aralık: 44-52
-                42.0 + random.nextDouble() * 18.0; // Geniş aralık: 42-60
-        break;
-      case 4: // FAZ 4 standart test - stabil basınç
-        basePressure =
-            pressureToggle
-                ? 47.0 + random.nextDouble() * 5.0
-                : // Dar aralık: 47-52
-                48.0 + random.nextDouble() * 7.0; // Geniş aralık: 48-55
-        break;
-      case 5: // Genel kontrol - normal basınç
-        basePressure =
-            pressureToggle
-                ? 45.0 + random.nextDouble() * 7.0
-                : // Dar aralık: 45-52
-                46.0 + random.nextDouble() * 9.0; // Geniş aralık: 46-55
-        break;
-      case 6: // Detaylı gözlem - yavaş değişen basınç
-        basePressure =
-            pressureToggle
-                ? 43.0 + random.nextDouble() * 9.0
-                : // Dar aralık: 43-52
-                42.0 + random.nextDouble() * 13.0; // Geniş aralık: 42-55
-        break;
-      case 7: // SÖKME modu - düşük basınç (0-10 bar arası)
-        basePressure = random.nextDouble() * 10;
-        break;
-      default:
-        basePressure =
-            pressureToggle
-                ? 47.0 + random.nextDouble() * 5.0
-                : // Dar aralık: 47-52
-                48.0 + random.nextDouble() * 7.0; // Geniş aralık: 48-55
-    }
-
-    return basePressure;
   }
 
   // Valfleri güncelleme metodunu ayrı bir metoda taşı

@@ -40,7 +40,7 @@ class TestVerisi {
       'puan': puan,
       'sonuc': sonuc,
       'fazPuanlari': _mapToJsonString(fazPuanlari),
-      'detayliFazVerileri': _mapToJsonString(detayliFazVerileri),
+      'DetayliFazVerileri': _mapToJsonString(detayliFazVerileri), // ✅ BÜYÜK HARFLE
     };
   }
 
@@ -56,7 +56,7 @@ class TestVerisi {
       puan: map['puan'] ?? 0,
       sonuc: map['sonuc'] ?? "Bilinmiyor",
       fazPuanlari: _jsonStringToMap<int>(map['fazPuanlari']),
-      detayliFazVerileri: _jsonStringToMap<dynamic>(map['detayliFazVerileri']),
+      detayliFazVerileri: _jsonStringToMap<dynamic>(map['DetayliFazVerileri']), // ✅ BÜYÜK HARFLE
     );
   }
 

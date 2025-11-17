@@ -26,13 +26,28 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
     final app = Provider.of<AppState>(context, listen: false);
 
     try {
-      // ✅ AppState'in initialize olmasını bekle
+      // ✅ GELİŞTİRİLMİŞ: Initialize kontrolü
       if (!app.isInitialized) {
+        print('🔄 AppState initialize ediliyor...');
         await app.initializeApp();
+        print('✅ AppState initialize tamamlandı');
       }
 
-      // ✅ Doğrudan testleri yükle
+      // ✅ BEKLEME: Initialize tamamlandığından emin ol
+      int retryCount = 0;
+      while (!app.isInitialized && retryCount < 10) {
+        await Future.delayed(Duration(milliseconds: 100));
+        retryCount++;
+      }
+
+      if (!app.isInitialized) {
+        throw Exception('AppState initialize edilemedi');
+      }
+
+      // ✅ ŞİMDİ testleri yükle
+      print('🔄 Testler yükleniyor...');
       await app.loadTestsFromLocal();
+      print('✅ ${app.completedTests.length} test yüklendi');
 
       setState(() {
         _isLoading = false;
@@ -42,6 +57,16 @@ class _RaporlarEkraniState extends State<RaporlarEkrani> {
       setState(() {
         _isLoading = false;
       });
+
+      // Hata mesajı göster
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Raporlar yüklenirken hata: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 

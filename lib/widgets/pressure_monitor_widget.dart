@@ -23,8 +23,8 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
   // Kaydırma için değişkenler
   double _currentScrollPosition = 0.0;
   bool _isScrolling = false;
-  final int _maxHistoryPoints = 2250;
-  final int _visiblePoints = 450;
+  final int _maxHistoryPoints = 1200;
+  final int _visiblePoints = 300;
 
   // 🆕 YENİ: Ölçeklendirme fonksiyonu
   double _transformY(double originalY) {
@@ -68,7 +68,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
     super.initState();
 
     // 🆕 DEĞİŞTİ: Saniyede 5 kez güncelleme (200ms aralıklarla)
-    _timer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+    _timer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       final app = context.read<AppState>();
 
       if (app.pressure > 0) {
