@@ -90,10 +90,6 @@ class AppState extends ChangeNotifier {
   TestPhase _currentPhase = TestPhase.idle;
   TestPhase get currentPhase => _currentPhase;
 
-  // State geçişleri için timer
-  Timer? _stateTimeoutTimer;
-  final Duration _stateTimeout = Duration(minutes: 5); // State timeout
-
   // Önceki state (geri dönüş için)
   TestState? _previousState;
 
@@ -251,9 +247,6 @@ class AppState extends ChangeNotifier {
     _previousState = _currentTestState;
     _currentTestState = newState;
 
-    // Önceki state timer'ını temizle
-    _stateTimeoutTimer?.cancel();
-
     // Log ekle
     logs.add(
       '[STATE] ${_stateToString(_previousState)} → ${_stateToString(newState)} ${message ?? ''}',
@@ -349,8 +342,6 @@ class AppState extends ChangeNotifier {
     _resetTestVariables();
     _startTestTimer();
 
-    // State timeout başlat
-    _startStateTimeout();
   }
 
   void _onTestRunning() {
@@ -366,9 +357,6 @@ class AppState extends ChangeNotifier {
     logs.add('Cihaz raporu bekleniyor...');
     _waitingForReport = true;
     _collectedReport = '';
-
-    // 2 dakika içinde rapor gelmezse timeout
-    _startStateTimeout();
   }
 
   void _onParsingReport() {
@@ -488,13 +476,6 @@ class AppState extends ChangeNotifier {
     testStatus = 'Duraklatıldı';
   }
 
-  void _startStateTimeout() {
-    _stateTimeoutTimer?.cancel();
-    _stateTimeoutTimer = Timer(_stateTimeout, () {
-      _onStateTimeout();
-    });
-  }
-
   void _onStateTimeout() {
     logs.add(
       '[STATE TIMEOUT] ${_stateToString(_currentTestState)} state\'i timeouta uğradı',
@@ -505,9 +486,6 @@ class AppState extends ChangeNotifier {
         // Çalışırken timeout olursa faz atlamayı dene
         logs.add('⏰ Running state timeout - faz atlama deneniyor');
         sendCommand("FAZ_ATLA");
-
-        // 30 saniye daha bekle
-        _startStateTimeout();
         break;
 
       case TestState.waitingReport:
