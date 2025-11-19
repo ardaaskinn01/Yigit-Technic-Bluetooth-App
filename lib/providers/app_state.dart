@@ -937,54 +937,60 @@ class AppState extends ChangeNotifier {
   }
 
   void _processRunningStateMessage(String message) {
-    // ✅ YENİ: Test başlatma onay mesajlarını yakala
-    if (message.contains("FAZ 0: Pompa aciliyor")) {
-      logs.add(
-        '🔍 Test başlatma onayı alındı - state running olarak güncelleniyor',
-      );
 
-      // Eğer hala starting state'inde isek, running'e geç
-      if (_currentTestState == TestState.starting) {
-        _setTestState(TestState.running, message: 'Test başlatma onaylandı');
-      }
-    }
-
-    // Mevcut faz geçiş işlemleri...
+    // ✅ YEDEK: Eski formatları da destekle (geriye dönük uyumluluk)
     if (message.contains("atlandi!") || message.contains("atlandı!")) {
       logs.add('🔍 Atlanan faz mesajı tespit edildi');
       _handlePhaseTransition(message);
     }
     // Test çalışırken gelen mesajları işle
-    else if (message.contains("FAZ 0 tamamlandı") ||
-        message.contains("FAZ 0 tamamlandi")) {
+    else if (message.contains("FAZ 0 tamamlandı") || message.contains("FAZ 0 tamamlandi")) {
       logs.add('🔍 FAZ 0 tamamlandı mesajı tespit edildi');
       _handlePhaseTransition(message);
-    } else if (message.contains("FAZ 1 tamamlandı") ||
-        message.contains("FAZ 1 tamamlandi")) {
+    }
+    else if (message.contains("FAZ 1 tamamlandı") || message.contains("FAZ 1 tamamlandi")) {
       logs.add('🔍 FAZ 1 tamamlandı mesajı tespit edildi');
       _handlePhaseTransition(message);
-    } else if (message.contains("FAZ 2 tamamlandı") ||
-        message.contains("FAZ 2 tamamlandi")) {
+    }
+    else if (message.contains("FAZ 2 tamamlandı") || message.contains("FAZ 2 tamamlandi")) {
       logs.add('🔍 FAZ 2 tamamlandı mesajı tespit edildi');
       _handlePhaseTransition(message);
-    } else if (message.contains("FAZ 3 tamamlandı") ||
-        message.contains("FAZ 3 tamamlandi")) {
+    }
+    else if (message.contains("FAZ 3 tamamlandı") || message.contains("FAZ 3 tamamlandi")) {
       logs.add('🔍 FAZ 3 tamamlandı mesajı tespit edildi');
       _handlePhaseTransition(message);
-    } else if (message.contains("FAZ 4 tamamlandı") ||
-        message.contains("FAZ 4 tamamlandi")) {
+    }
+    else if (message.contains("FAZ 4 tamamlandı") || message.contains("FAZ 4 tamamlandi")) {
       logs.add('🔍 FAZ 4 tamamlandı mesajı tespit edildi');
       // ✅ DÜZELTİLDİ: FAZ 4 bittiğinde hemen waitingReport'a geç
       _setTestState(TestState.waitingReport, message: 'FAZ 4 tamamlandı');
     }
-
     // ✅ GELİŞTİRİLDİ: Daha güvenli rapor tespiti
     if (message.contains("MEKATRONİK SAĞLIK RAPORU") ||
         message.contains("GENEL PUAN:") ||
-        message.contains("TOPLAM PUAN:") ||
-        message.contains("FAZ 0:") && message.contains("FAZ 4:")) {
+        message.contains("TOPLAM PUAN:")) {
+
+      logs.add('Rapor başlangıcı tespit edildi - waitingReport state\'ine geçiliyor');
+      _setTestState(TestState.waitingReport, message: 'Rapor başlangıcı alındı');
+    }
+
+    if (message.contains("HATA:") || message.contains("TIMEOUT")) {
+      _setTestState(TestState.error, message: 'Cihaz hatası: $message');
+      _saveErrorTest('Cihaz hatası: $message');
+    }
+
+    // ✅ GELİŞTİRİLMİŞ: Daha güvenli rapor tespiti
+    final raporBaslangicKontrol =
+        message.contains("MEKATRONİK SAĞLIK RAPORU") ||
+            message.contains("GENEL PUAN:") ||
+            message.contains("TOPLAM PUAN:") ||
+            (message.contains("FAZ 0:") && message.contains("FAZ 4:")) ||
+            message.contains("TEST RAPORU:") ||
+            message.contains("========================================");
+
+    if (raporBaslangicKontrol && _currentTestState == TestState.running) {
       logs.add(
-        'Rapor başlangıcı tespit edildi - waitingReport state\'ine geçiliyor',
+        '📊 Rapor başlangıcı tespit edildi - waitingReport state\'ine geçiliyor',
       );
       _setTestState(
         TestState.waitingReport,
@@ -992,9 +998,30 @@ class AppState extends ChangeNotifier {
       );
     }
 
-    if (message.contains("HATA:") || message.contains("TIMEOUT")) {
+    // ✅ GELİŞTİRİLMİŞ: Hata tespiti
+    final hataKontrol =
+        message.contains("HATA:") ||
+            message.contains("TIMEOUT") ||
+            message.contains("HATALI") ||
+            message.contains("BASARISIZ") ||
+            (message.contains("Uyarı:") && message.contains("Düşük basınç") && _currentPhase == TestPhase.phase0);
+
+    if (hataKontrol) {
+      logs.add('❌ Hata tespit edildi: $message');
       _setTestState(TestState.error, message: 'Cihaz hatası: $message');
       _saveErrorTest('Cihaz hatası: $message');
+    }
+
+    // ✅ YENİ: Test tamamlanma kontrolü
+    if (message.contains("Test protokolu tamamlandi") ||
+        message.contains(">>> Test protokolu tamamlandi! <<<")) {
+      logs.add('🎉 Test protokolü tamamlandı mesajı alındı');
+
+      // Eğer hala running state'inde isek, completed'e geç
+      if (_currentTestState == TestState.running ||
+          _currentTestState == TestState.waitingReport) {
+        _setTestState(TestState.completed, message: 'Test protokolü tamamlandı');
+      }
     }
   }
 
@@ -1005,33 +1032,32 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    if (message.contains("FAZ 0 tamamlandi") ||
-        message.contains("FAZ 0 tamamlandı")) {
+    if (message.contains("FAZ 0 tamamlandi") || message.contains("FAZ 0 tamamlandı")) {
       _currentPhase = TestPhase.phase1;
       logs.add('✅ FAZ 0 tamamlandı → FAZ 1 başlıyor');
       notifyListeners();
-    } else if (message.contains("FAZ 1 tamamlandi") ||
-        message.contains("FAZ 1 tamamlandı")) {
+    }
+    else if (message.contains("FAZ 1 tamamlandi") || message.contains("FAZ 1 tamamlandı")) {
       _currentPhase = TestPhase.phase2;
       logs.add('✅ FAZ 1 tamamlandı → FAZ 2 başlıyor');
       notifyListeners();
-    } else if (message.contains("FAZ 2 tamamlandi") ||
-        message.contains("FAZ 2 tamamlandı")) {
+    }
+    else if (message.contains("FAZ 2 tamamlandi") || message.contains("FAZ 2 tamamlandı")) {
       _currentPhase = TestPhase.phase3;
       logs.add('✅ FAZ 2 tamamlandı → FAZ 3 başlıyor');
       notifyListeners();
-    } else if (message.contains("FAZ 3 tamamlandi") ||
-        message.contains("FAZ 3 tamamlandı")) {
+    }
+    else if (message.contains("FAZ 3 tamamlandi") || message.contains("FAZ 3 tamamlandı")) {
       _currentPhase = TestPhase.phase4;
       logs.add('✅ FAZ 3 tamamlandı → FAZ 4 başlıyor');
       notifyListeners();
-    } else if (message.contains("FAZ 4 tamamlandi") ||
-        message.contains("FAZ 4 tamamlandı")) {
+    }
+    else if (message.contains("FAZ 4 tamamlandi") || message.contains("FAZ 4 tamamlandı")) {
       _currentPhase = TestPhase.completed;
       logs.add('✅ FAZ 4 tamamlandı → TEST TAMAMLANDI');
       notifyListeners();
-    } else if (message.contains("TEST TAMAMLANDI") ||
-        message.contains("MEKATRONİK SAĞLIK RAPORU")) {
+    }
+    else if (message.contains("TEST TAMAMLANDI") || message.contains("MEKATRONİK SAĞLIK RAPORU")) {
       _currentPhase = TestPhase.completed;
       logs.add('🎉 TEST TAMAMLANDI - Rapor bekleniyor');
       notifyListeners();
@@ -2248,7 +2274,7 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    // State machine'e mesajı ilet
+    _handlePhaseTransition(msg);
     _processMessageBasedOnState(msg);
   }
 
