@@ -37,13 +37,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _registerCallback() {
-    if (!_callbackRegistered) {
-      final app = Provider.of<AppState>(context, listen: false);
-      app.onTestModuRaporuAlindi = (rapor) {
+    final app = Provider.of<AppState>(context, listen: false);
+
+    // Önceki callback'i temizle
+    app.onTestModuRaporuAlindi = null;
+
+    // Yeni callback'i kaydet
+    app.onTestModuRaporuAlindi = (rapor) {
+      if (!app.isTesting && app.currentTestState == TestState.idle) {
         _showTestModuRaporu(rapor);
-      };
-      _callbackRegistered = true;
-    }
+      } else {
+        print('Test protokolü çalışıyor - Test modu raporu gösterilmedi');
+      }
+    };
+
+    _callbackRegistered = true;
+  }
+
+  @override
+  void dispose() {
+    // Callback'i temizle
+    final app = Provider.of<AppState>(context, listen: false);
+    app.onTestModuRaporuAlindi = null;
+    super.dispose();
   }
 
   void _showTestModuRaporu(TestModuRaporu rapor) {
