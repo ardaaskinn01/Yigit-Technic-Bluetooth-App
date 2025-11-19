@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
@@ -7,9 +6,9 @@ import '../models/test_verisi.dart';
 import '../models/testmode_verisi.dart';
 import '../services/bluetooth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-
 import '../services/database.dart';
+import '../services/report_parser_service.dart';
+import '../services/timer_service.dart';
 import '../utils/mekatronik_puanlama.dart';
 
 enum TestPhase { idle, phase0, phase1, phase2, phase3, phase4, completed }
@@ -28,6 +27,10 @@ enum TestState {
 
 class AppState extends ChangeNotifier {
   final BluetoothService bt = BluetoothService();
+
+  // ✅ YENİ SERVİSLER
+  final TimerService _timerService = TimerService();
+  final ReportParserService _parserService = ReportParserService();
 
   // Live values
   bool get isTestRunning => _currentTestState == TestState.running;
@@ -59,6 +62,7 @@ class AppState extends ChangeNotifier {
   double _currentMinPressure = double.infinity;
   double _currentMaxPressure = 0.0;
   bool isPaused = false;
+  bool _isSavingProcessActive = false;
   bool testFinished = false;
   List<TestVerisi> completedTests = [];
   bool get testPaused => isPaused;
@@ -68,7 +72,6 @@ class AppState extends ChangeNotifier {
   double faz3Puan = 0; // Anahtarlar: V1, V2, V3_7, V4_6, V5, VR
   double faz4PompaSuresi = 0;
   String autoCycleMode = '0';
-  Timer? _testTimeoutTimer;
   Duration _testTimeout = Duration(minutes: 25); // 25 dakika timeout
   Map<String, double> _deviceScores = {};
   Completer<void>? _testCompletionCompleter;
@@ -78,7 +81,7 @@ class AppState extends ChangeNotifier {
   String _currentFaz = 'HAZIR';
   int _toplamTekrar = 0;
   int get toplamTekrar => _toplamTekrar;
-  Timer? _testModeValveUpdateTimer;
+
   TestModuRaporu? _sonTestModuRaporu;
   TestModuRaporu? get sonTestModuRaporu => _sonTestModuRaporu;
   final int _maxLogCount = 200; // Maksimum log sayısı
@@ -102,9 +105,6 @@ class AppState extends ChangeNotifier {
   String get currentFaz => _currentFaz;
 
   bool isReconnecting = false;
-  Timer? _connectionMonitorTimer;
-  Timer? _testModeTimer; // 🔹 BU SATIRI EKLEYİN - Test modu timer'ı
-
   final Map<int, Map<String, dynamic>> fazBilgileri = {
     0: {'sure': '20 saniye', 'aciklama': 'Pompa Yükseliş'},
     1: {'sure': '3 dakika', 'aciklama': 'Isınma'},
@@ -172,13 +172,10 @@ class AppState extends ChangeNotifier {
   bool isTesting = false;
   double phaseProgress = 0.0;
   String phaseStatusMessage = "";
-  Timer? _phaseTimer;
   List<BluetoothDevice> discoveredDevices = [];
   // Test fazları için timer
-  Timer? _testTimer;
   int _elapsedTestSeconds = 0;
   Function(String)? onDeviceReportReceived;
-  Timer? _uiUpdateTimer;
   final List<Function(String)> _reportCallbacks = [];
   int _faz4VitesSayisi = 0;
   bool isConnected = false;
@@ -418,17 +415,6 @@ class AppState extends ChangeNotifier {
       // ✅ ÖNCE: Veritabanı bağlantısını kur
       await _dbService.database;
 
-      // ✅ TABLO KONTROLÜ: Tablo yoksa oluştur
-      final tableExists = await _dbService.isTableExists();
-      if (!tableExists) {
-        print('⚠️ Tablo bulunamadı, yeniden oluşturulacak...');
-        await _dbService.recreateTable();
-      } else {
-        // Tablo varsa sütunları kontrol et
-        print('✅ Tablo mevcut, sütunlar kontrol ediliyor...');
-        await _checkTableColumns();
-      }
-
       // ✅ SONRA: Testleri veritabanından yükle
       await _loadTestsFromDatabase();
 
@@ -523,6 +509,11 @@ class AppState extends ChangeNotifier {
   void startTestMode(int mode) {
     if (mode < 1 || mode > 8) return;
 
+    // ✅ EKLENECEK KOD BLOĞU: Eski rapor kalıntılarını temizle
+    _waitingForTestModuRaporu = false;
+    _collectedTestModuRaporu = '';
+    // -------------------------------------------------------
+
     // ÖNCE: Valf güncellemesini durdur
     _valveUpdateInProgress = true;
 
@@ -577,25 +568,18 @@ class AppState extends ChangeNotifier {
   }
 
   void _startTestModeValveUpdateTimer() {
-    _testModeValveUpdateTimer?.cancel();
-
     final updateInterval = _getTestModeValveUpdateInterval();
 
-    _testModeValveUpdateTimer = Timer.periodic(updateInterval, (timer) {
+    _timerService.startPeriodic('valve_update', updateInterval, (timer) {
       if (!isTestModeActive ||
           !isConnected ||
           mockMode ||
-          _valveUpdateInProgress) {
+          _valveUpdateInProgress)
         return;
-      }
 
       _valveUpdateInProgress = true;
-
       try {
-        // Bluetooth'tan güncel valf durumlarını al ve güncelle
         _updateValvesFromBluetoothData();
-
-        // UI'ı güncelle
         notifyListeners();
       } finally {
         _valveUpdateInProgress = false;
@@ -728,8 +712,14 @@ class AppState extends ChangeNotifier {
   void stopTestMode(int mode) {
     // Valf güncellemelerini durdur
     _valveUpdateInProgress = true;
-    _testModeValveUpdateTimer?.cancel();
-    _testModeValveUpdateTimer = null;
+
+    // ❌ ESKİ KOD: _testModeValveUpdateTimer?.cancel();
+    // ✅ YENİ KOD: Servis üzerinden iptal et
+    _timerService.cancel('valve_update');
+
+    // Rapor beklentisini sıfırla
+    _waitingForTestModuRaporu = false;
+    _collectedTestModuRaporu = '';
 
     try {
       // Sistem durumunu sıfırla
@@ -761,6 +751,7 @@ class AppState extends ChangeNotifier {
     if (isTesting) return;
 
     _testResultSaved = false;
+    _isSavingProcessActive = false;
     _setTestState(TestState.starting, message: testAdi);
     _currentPhase = TestPhase.phase0;
     _resetAllTimers(); // ⚠️ Bu timer'ı sıfırlıyor!
@@ -802,19 +793,17 @@ class AppState extends ChangeNotifier {
   }
 
   void _startTestTimer() {
-    _testTimer?.cancel(); // Önceki timer'ı temizle
     _elapsedTestSeconds = 0;
-    _testTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      // Tüm aktif test durumlarında süreyi artır
+    _timerService.startPeriodic('test_timer', const Duration(seconds: 1), (
+      timer,
+    ) {
+      // Timer mantığı aynen kalır
       if (_currentTestState == TestState.starting ||
           _currentTestState == TestState.running ||
           _currentTestState == TestState.waitingReport ||
           _currentTestState == TestState.parsingReport) {
         _elapsedTestSeconds++;
-        notifyListeners(); // UI'ı güncelle
-        print(
-          '[TIMER] Süre: $_elapsedTestSeconds saniye, State: $_currentTestState',
-        ); // Debug
+        notifyListeners();
       }
     });
   }
@@ -828,8 +817,11 @@ class AppState extends ChangeNotifier {
     // Testi starting state'ine al
     _setTestState(TestState.starting, message: 'Timeout timer başlatıldı');
 
-    _testTimeoutTimer = Timer(_testTimeout, () {
-      if (!_testCompletionCompleter!.isCompleted) {
+    // ❌ ESKİ KOD: _testTimeoutTimer = Timer(...
+    // ✅ YENİ KOD: TimerService kullanımı
+    _timerService.startTimeout('test_timeout', _testTimeout, () {
+      if (_testCompletionCompleter != null &&
+          !_testCompletionCompleter!.isCompleted) {
         _setTestState(TestState.error, message: 'Test timeout');
         _testCompletionCompleter!.completeError(
           Exception("Test timeout (${_testTimeout.inMinutes} dakika)"),
@@ -851,7 +843,9 @@ class AppState extends ChangeNotifier {
       _setTestState(TestState.error, message: e.toString());
       throw e;
     } finally {
-      _testTimeoutTimer?.cancel();
+      // ❌ ESKİ KOD: _testTimeoutTimer?.cancel();
+      // ✅ YENİ KOD: Servis üzerinden iptal
+      _timerService.cancel('test_timeout');
       _testCompletionCompleter = null;
     }
   }
@@ -990,25 +984,24 @@ class AppState extends ChangeNotifier {
       _saveErrorTest('Cihaz hatası: $message');
     }
 
-    // ✅ YENİ: Test tamamlanma kontrolü
     if (message.contains("Test protokolu tamamlandi") ||
         message.contains(">>> Test protokolu tamamlandi! <<<")) {
+      logs.add('🎉 Test protokolü tamamlandı sinyali alındı.');
 
-      logs.add('🎉 Test protokolü tamamlandı mesajı alındı');
-
-      // Eğer şu an Rapor Parse ediliyorsa veya Bekleniyorsa,
-      // State'i completed'a çekme! Bırak parsing bitsin.
-      if (_currentTestState != TestState.waitingReport &&
-          _currentTestState != TestState.parsingReport &&
-          !_testResultSaved) {
-
-        _setTestState(
-          TestState.completed,
-          message: 'Test protokolü tamamlandı',
+      // 🛑 KRİTİK KONTROL:
+      // Eğer şu an rapor bekliyorsak, rapor parse ediyorsak veya zaten kayıt yaptıysak
+      // state'i 'completed' yapıp akışı bozma! Bırak parsing işlemi kendi bitirsin.
+      if (_currentTestState == TestState.waitingReport ||
+          _currentTestState == TestState.parsingReport ||
+          _testResultSaved ||
+          _isSavingProcessActive) {
+        logs.add(
+          '🛡️ Rapor işlemi sürdüğü için "Tamamlandı" sinyali yutuldu (Erken bitiş engellendi).',
         );
-      } else {
-        logs.add('⏳ Rapor işlemi devam ettiği için "Tamamlandı" sinyali yutuldu.');
+        return; // ⛔️ BURADAN ÇIK, AŞAĞI GİTME
       }
+
+      _setTestState(TestState.completed, message: 'Test protokolü tamamlandı');
     }
   }
 
@@ -1204,260 +1197,64 @@ class AppState extends ChangeNotifier {
   }
 
   void _parseTestModuRaporu(String report) {
-    logs.add("TEST MODU RAPORU PARSE EDİLİYOR: ${report.length} karakter");
+    logs.add("TEST MODU RAPORU PARSE EDİLİYOR...");
 
     try {
-      // Debug için raporun ilk 200 karakterini logla
-      if (report.length > 200) {
-        logs.add("Rapor önizleme: ${report.substring(0, 200)}...");
-      } else {
-        logs.add("Rapor: $report");
-      }
-
-      // Genel bilgiler - NULL güvenli parsing
-      final minBasincMatch = RegExp(
-        r'Min Basınç:\s*([\d.]+)',
-      ).firstMatch(report);
-      final maxBasincMatch = RegExp(
-        r'Max Basınç:\s*([\d.]+)',
-      ).firstMatch(report);
-      final ortalamaBasincMatch = RegExp(
-        r'Ortalama Basınç:\s*([\d.]+)',
-      ).firstMatch(report);
-
-      // Pompa süresi: "0 dk 15 sn" formatı
-      final pompaSureMatch = RegExp(
-        r'Toplam Pompa Çalışma Süresi:\s*(\d+)\s*dk\s*(\d+)\s*sn',
-      ).firstMatch(report);
-
-      // Alternatif pompa süresi formatı
-      final pompaSureAltMatch = RegExp(
-        r'Pompa Süresi:\s*(\d+)\s*dk\s*(\d+)\s*sn',
-      ).firstMatch(report);
-
-      final dusukBasincSayisiMatch = RegExp(
-        r'Düşük Basınç.*Sayısı:\s*(\d+)',
-      ).firstMatch(report);
-      final dusukBasincSureMatch = RegExp(
-        r'Toplam Düşük Basınç Süresi:\s*(\d+)\s*sn',
-      ).firstMatch(report);
-      final toplamVitesGecisMatch = RegExp(
-        r'Toplam Vites Geçişi Sayısı:\s*(\d+)',
-      ).firstMatch(report);
-
-      // Vites geçişleri - NULL güvenli
-      final vitesGecisleri = <String, int>{};
-
-      // 1. Vites, 2. Vites, ... formatı
-      final vitesRegex = RegExp(r'(\d+)\.\s*Vites:\s*(\d+)');
-      for (final match in vitesRegex.allMatches(report)) {
-        try {
-          final vitesNo = match.group(1);
-          final gecisSayisi = match.group(2);
-          if (vitesNo != null && gecisSayisi != null) {
-            vitesGecisleri['V$vitesNo'] = int.parse(gecisSayisi);
-          }
-        } catch (e) {
-          logs.add("Vites parsing hatası: $e");
-        }
-      }
-
-      // R Vites
-      final rVitesMatch = RegExp(r'R\s*Vites:\s*(\d+)').firstMatch(report);
-      if (rVitesMatch != null && rVitesMatch.group(1) != null) {
-        try {
-          vitesGecisleri['VR'] = int.parse(rVitesMatch.group(1)!);
-        } catch (e) {
-          logs.add("R Vites parsing hatası: $e");
-        }
-      }
-
-      // Pompa süresini saniyeye çevir - NULL güvenli
-      int toplamPompaSuresiSn = 0;
-      final pompaMatch = pompaSureMatch ?? pompaSureAltMatch;
-      if (pompaMatch != null) {
-        try {
-          final dakika = int.tryParse(pompaMatch.group(1) ?? '0') ?? 0;
-          final saniye = int.tryParse(pompaMatch.group(2) ?? '0') ?? 0;
-          toplamPompaSuresiSn = dakika * 60 + saniye;
-        } catch (e) {
-          logs.add("Pompa süresi parsing hatası: $e");
-        }
-      }
-
-      // Değerleri NULL güvenli şekilde al
-      double minBasinc = 0.0;
-      double maxBasinc = 0.0;
-      double ortalamaBasinc = 0.0;
-      int dusukBasincSayisi = 0;
-      int toplamDusukBasincSuresiSn = 0;
-      int toplamVitesGecisSayisi = 0;
-
-      try {
-        minBasinc = double.tryParse(minBasincMatch?.group(1) ?? '0') ?? 0.0;
-      } catch (e) {
-        logs.add("Min basınç parsing hatası: $e");
-      }
-
-      try {
-        maxBasinc = double.tryParse(maxBasincMatch?.group(1) ?? '0') ?? 0.0;
-      } catch (e) {
-        logs.add("Max basınç parsing hatası: $e");
-      }
-
-      try {
-        ortalamaBasinc =
-            double.tryParse(ortalamaBasincMatch?.group(1) ?? '0') ?? 0.0;
-      } catch (e) {
-        logs.add("Ortalama basınç parsing hatası: $e");
-      }
-
-      try {
-        dusukBasincSayisi =
-            int.tryParse(dusukBasincSayisiMatch?.group(1) ?? '0') ?? 0;
-      } catch (e) {
-        logs.add("Düşük basınç sayısı parsing hatası: $e");
-      }
-
-      try {
-        toplamDusukBasincSuresiSn =
-            int.tryParse(dusukBasincSureMatch?.group(1) ?? '0') ?? 0;
-      } catch (e) {
-        logs.add("Düşük basınç süresi parsing hatası: $e");
-      }
-
-      try {
-        toplamVitesGecisSayisi =
-            int.tryParse(toplamVitesGecisMatch?.group(1) ?? '0') ?? 0;
-      } catch (e) {
-        logs.add("Toplam vites geçişi parsing hatası: $e");
-      }
-
-      final rapor = TestModuRaporu(
-        tarih: DateTime.now(),
-        testModu: currentTestMode,
-        minBasinc: minBasinc,
-        maxBasinc: maxBasinc,
-        ortalamaBasinc: ortalamaBasinc,
-        toplamPompaCalismaSuresiSn: toplamPompaSuresiSn,
-        dusukBasincSayisi: dusukBasincSayisi,
-        toplamDusukBasincSuresiSn: toplamDusukBasincSuresiSn,
-        toplamVitesGecisSayisi: toplamVitesGecisSayisi,
-        vitesGecisleri: vitesGecisleri,
-      );
+      // ✅ LOGIC SİLİNDİ -> SERVİSE TAŞINDI
+      final rapor = _parserService.parseTestModuRaporu(report, currentTestMode);
 
       _sonTestModuRaporu = rapor;
-      logs.add(
-        "✅ TEST MODU RAPORU BAŞARIYLA OLUŞTURULDU: Mod ${rapor.testModu}",
-      );
 
-      // Callback'i tetikle
       if (onTestModuRaporuAlindi != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           onTestModuRaporuAlindi!(rapor);
         });
       }
-
       notifyListeners();
     } catch (e) {
       logs.add("❌ TEST MODU RAPORU PARSE HATASI: $e");
-      logs.add("Hata detayı: ${e.toString()}");
-
-      // Stack trace'i de logla - NULL güvenli
-      if (e is Error) {
-        logs.add("Stack trace: ${e.stackTrace}");
-      } else {
-        logs.add("Stack trace: Yok");
-      }
     }
   }
 
   void _parseCompleteReport(String report) {
-    logs.add("TAM RAPOR PARSE EDİLİYOR: ${report.length} karakter");
+    logs.add("TAM RAPOR PARSE EDİLİYOR...");
 
     try {
-      // Genel bilgiler
-      final minBasincMatch = RegExp(
-        r'Min Basınç:\s*([\d.]+)',
-      ).firstMatch(report);
-      final maxBasincMatch = RegExp(
-        r'Max Basınç:\s*([\d.]+)',
-      ).firstMatch(report);
-      final pompaSureMatch = RegExp(
-        r'Toplam Pompa:\s*(\d+)\s*dk\s*(\d+)\s*sn',
-      ).firstMatch(report);
-
-      // FAZ puanları - YENİ FORMAT
-      final fazPuanlari = <String, int>{};
-
-      // "FAZ 0: 2/10" formatını parse et
-      final fazPuanRegex = RegExp(r'FAZ\s*(\d+):\s*(\d+)/(\d+)');
-      for (final match in fazPuanRegex.allMatches(report)) {
-        fazPuanlari['faz${match.group(1)}'] = int.parse(match.group(2)!);
-      }
-
-      // Genel puan - İKİ FARKLI FORMAT
-      final genelPuanMatch = RegExp(
-        r'GENEL PUAN:\s*([\d.]+)/100',
-      ).firstMatch(report);
-      final mekatronikPuanMatch = RegExp(
-        r'TOPLAM PUAN:\s*(\d+)/100',
-      ).firstMatch(report);
-
-      // HANGİ PUANI KULLANACAĞIMIZA KARAR VER
-      int finalPuan = 0;
-      if (mekatronikPuanMatch != null) {
-        finalPuan = int.parse(
-          mekatronikPuanMatch.group(1)!,
-        ); // TOPLAM PUAN: 16/100
-      } else if (genelPuanMatch != null) {
-        finalPuan = int.parse(genelPuanMatch.group(1)!); // GENEL PUAN: 40.9/100
-      }
-
-      // TestVerisi'ni güncelle
-      final updatedTest = TestVerisi(
-        testAdi: _currentTestName,
-        tarih: DateTime.now(),
-        minBasinc:
-            double.tryParse(minBasincMatch?.group(1) ?? '0') ??
-            _currentMinPressure,
-        maxBasinc:
-            double.tryParse(maxBasincMatch?.group(1) ?? '0') ??
-            _currentMaxPressure,
-        toplamPompaSuresi: _calculateTotalPumpSeconds(pompaSureMatch),
-        puan: finalPuan,
-        sonuc: _parseSonuc(report),
-        fazPuanlari: fazPuanlari,
+      // Logic servise taşındı
+      final updatedTest = _parserService.parseFullReport(
+        report,
+        _currentTestName,
+        _currentMinPressure,
+        _currentMaxPressure,
       );
 
-      // ✅ YENİ: Testi hemen kaydet ve callback tetikle
       _saveParsedTest(updatedTest);
 
-      // ✅ State'i completed'e geçir
       if (_currentTestState == TestState.parsingReport) {
         _setTestState(TestState.completed, message: 'Rapor parse edildi');
       }
 
       logs.add("RAPOR BAŞARIYLA PARSE EDİLDİ: ${updatedTest.puan}/100 puan");
 
-      // ✅ YENİ: State machine ile test tamamlanma işlemini tetikle
+      // State machine ile test tamamlanma işlemini tetikle
       if (_testCompletionCompleter != null &&
           !_testCompletionCompleter!.isCompleted) {
         logs.add("Rapor parsing tamamlandı - Test completer tamamlanıyor");
         _testCompletionCompleter!.complete();
       }
 
-      // ✅ YENİ: State'i completed'e geçir (eğer parsing state'inde isek)
+      // State'i completed'e geçir
       if (_currentTestState == TestState.parsingReport) {
         _setTestState(
           TestState.completed,
-          message: 'Rapor parse edildi - Puan: $finalPuan',
+          // ❌ ESKİ KOD: Puan: $finalPuan
+          // ✅ YENİ KOD: Puan: ${updatedTest.puan}
+          message: 'Rapor parse edildi - Puan: ${updatedTest.puan}',
         );
       }
     } catch (e) {
       logs.add("RAPOR PARSE HATASI: $e");
 
-      // ✅ YENİ: Hata durumunda state machine'i güncelle
       if (_testCompletionCompleter != null &&
           !_testCompletionCompleter!.isCompleted) {
         _testCompletionCompleter!.completeError(
@@ -1469,26 +1266,12 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  double _calculateTotalPumpSeconds(RegExpMatch? match) {
-    if (match == null) return 0;
-    final dakika = int.tryParse(match.group(1) ?? '0') ?? 0;
-    final saniye = int.tryParse(match.group(2) ?? '0') ?? 0;
-    return (dakika * 60 + saniye).toDouble();
-  }
-
-  String _parseSonuc(String report) {
-    if (report.contains("DURUM: KÖTÜ")) return "KÖTÜ";
-    if (report.contains("DURUM: SORUNLU")) return "SORUNLU";
-    if (report.contains("DURUM: ORTA")) return "ORTA";
-    if (report.contains("DURUM: İYİ")) return "İYİ";
-    if (report.contains("DURUM: MÜKEMMEL")) return "MÜKEMMEL";
-    return "BELİRSİZ";
-  }
-
   // MEVCUT KODU GÜNCELLEYİN:
   void _saveParsedTest(TestVerisi test) async {
     if (_testResultSaved) {
-      logs.add('⚠️ Rapor zaten işlendi ve kaydedildi, mükerrer işlem engellendi.');
+      logs.add(
+        '⚠️ Rapor zaten işlendi ve kaydedildi, mükerrer işlem engellendi.',
+      );
       return;
     }
 
@@ -1500,32 +1283,37 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveTest(TestVerisi test) async {
+    // 🛡️ KİLİT KONTROLÜ
+    if (_testResultSaved) {
+      logs.add('🛑 Mükerrer kayıt engellendi (Flag Active): ${test.testAdi}');
+      return;
+    }
+
+    // İsme ve süreye göre son kontrol (Double Check)
+    if (completedTests.any(
+      (t) =>
+          t.testAdi == test.testAdi &&
+          DateTime.now().difference(t.tarih).inSeconds.abs() < 10,
+    )) {
+      logs.add('🛑 Mükerrer kayıt engellendi (Time Check): ${test.testAdi}');
+      return;
+    }
+
+    _testResultSaved = true; // 🚩 Bayrağı HEMEN kaldır (await öncesi)
+
     try {
       final id = await _dbService.insertTest(test);
 
-      // ✅ YENİ: Kayıt sonrası testi yerel listeye ekle
-      final existingIndex = completedTests.indexWhere(
-        (t) =>
-            t.id == test.id ||
-            (t.testAdi == test.testAdi &&
-                t.tarih.difference(test.tarih).inSeconds.abs() < 5),
-      );
+      // Listeye ekleme işlemleri...
+      final testWithId = test.copyWith(id: id);
+      completedTests.insert(0, testWithId);
 
-      if (existingIndex == -1) {
-        // Yeni ID'yi ata ve listeye ekle
-        final testWithId = test.copyWith(id: id);
-        completedTests.insert(0, testWithId);
-      } else {
-        // Mevcut testi güncelle
-        completedTests[existingIndex] = test.copyWith(id: id);
-      }
-
-      logs.add(
-        '✅ Test kaydedildi ve liste güncellendi: ${test.testAdi} (ID: $id)',
-      );
+      logs.add('✅ Test TEKİL olarak kaydedildi: ID $id');
       notifyListeners();
     } catch (e) {
-      logs.add('❌ Test kaydetme hatası: $e');
+      _testResultSaved =
+          false; // Hata olursa bayrağı indir ki tekrar denenebilsin
+      logs.add('❌ Kayıt hatası: $e');
       rethrow;
     }
   }
@@ -1559,41 +1347,21 @@ class AppState extends ChangeNotifier {
   // Test sonucu callback'i
   Function(TestVerisi)? onTestCompleted;
 
-  // Test durdurma
-  void stopAutoTest() {
-    _testTimer?.cancel();
-    isTesting = false;
-    testStatus = 'Test Durduruldu';
-    notifyListeners();
-  }
-
-  void pauseTest() {
-    if (_currentTestState != TestState.running) return;
-
-    _setTestState(TestState.paused);
-    sendCommand("DUR");
-  }
-
-  void resumeTest() {
-    if (_currentTestState != TestState.paused) return;
-
-    _setTestState(TestState.running);
-    sendCommand("DEVAM");
-  }
-
   void stopTest() {
-    // ✅ DÜZELTİLDİ: State machine üzerinden kontrol et
-    if (_currentTestState == TestState.idle ||
+    // Eğer zaten bittiyse veya kaydedildiyse durdurma komutu işleme
+    if (_testResultSaved ||
         _currentTestState == TestState.completed ||
-        _currentTestState == TestState.error) {
+        _currentTestState == TestState.idle) {
       return;
     }
 
     _setTestState(TestState.cancelled);
     sendCommand("aq");
 
-    // ✅ YENİ: İptal edilen testi de kaydet
-    _saveCancelledTest();
+    // İptal kaydını sadece henüz bir şey kaydedilmediyse yap
+    if (!_testResultSaved) {
+      _saveCancelledTest();
+    }
 
     _resetAllTimers();
     _resetSystemAfterTest();
@@ -1623,10 +1391,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<TestVerisi> _saveFullTest() async {
-    if (_testResultSaved) {
-      logs.add('⚠️ _saveFullTest engellendi: Zaten kayıt var.');
-      // Mevcut son testi döndür
-      return completedTests.isNotEmpty ? completedTests.first : throw Exception("Kayıt bulunamadı");
+    // Eğer zaten kaydedildiyse veya şu an rapor parse ediliyorsa BURADA DUR.
+    if (_testResultSaved || _currentTestState == TestState.parsingReport) {
+      logs.add(
+        '⚠️ _saveFullTest iptal edildi: Zaten kayıt var veya Rapor bekleniyor.',
+      );
+      if (completedTests.isNotEmpty) return completedTests.first;
+      throw Exception("Kayıt çakışması");
     }
 
     final toplamPuan = _deviceScores['total'] ?? _calculateScoreFromFazScores();
@@ -1727,21 +1498,25 @@ class AppState extends ChangeNotifier {
   final bool mockMode; // <- yeni
 
   void _resetAllTimers() {
-    _testTimer?.cancel();
-    _testTimer = null;
-    _phaseTimer?.cancel();
-    _phaseTimer = null;
-    _connectionMonitorTimer?.cancel();
-    _connectionMonitorTimer = null;
-    _testModeTimer?.cancel();
-    _testModeTimer = null;
-    _testTimeoutTimer?.cancel();
-    _testTimeoutTimer = null;
-    // ✅ YENİ EKLENDİ: Valf güncelleme timer'ını temizle
-    _testModeValveUpdateTimer?.cancel();
-    _testModeValveUpdateTimer = null;
+    _timerService.cancelAll(); // ✅ TEK SATIRDA HEPSİNİ SIFIRLA
+
+    // UI update timer'ı yeniden başlatmak gerekebilir çünkü cancelAll hepsini sildi
+    _startUiUpdateTimer();
+    _startOperationTimer();
+    _startConnectionMonitor();
+
     _elapsedTestSeconds = 0;
     notifyListeners();
+  }
+
+  void _startUiUpdateTimer() {
+    _timerService.startTimeout('test_timeout', _testTimeout, () {
+      if (_testCompletionCompleter != null &&
+          !_testCompletionCompleter!.isCompleted) {
+        _setTestState(TestState.error, message: 'Test timeout');
+        _testCompletionCompleter!.completeError(Exception("Test timeout"));
+      }
+    });
   }
 
   void updateValvesFromMessage(String msg) {
@@ -1784,39 +1559,11 @@ class AppState extends ChangeNotifier {
   AppState({this.mockMode = false}) {
     _startOperationTimer();
     _init();
-
-    // UI güncelleme için ayrı timer
-    _uiUpdateTimer = Timer.periodic(Duration(milliseconds: 500), (timer) {
-      if (isTesting || _currentTestState != TestState.idle) {
-        notifyListeners();
-      }
-    });
   }
 
   Future<void> _init() async {
     await _loadPrefs();
     notifyListeners();
-  }
-
-  // YENİ: Tablo sütunlarını kontrol etme metodu
-  Future<void> _checkTableColumns() async {
-    try {
-      final db = await _dbService.database;
-      final columns = await db.rawQuery('PRAGMA table_info(tests)');
-      final columnNames = columns.map((c) => c['name'] as String).toList();
-
-      print('[DATABASE] Mevcut sütunlar: $columnNames');
-
-      // Eksik sütun kontrolü
-      if (!columnNames.contains('DetayliFazVerileri')) {
-        print(
-          '⚠️ DetayliFazVerileri sütunu eksik, tablo yeniden oluşturulacak...',
-        );
-        await _dbService.recreateTable();
-      }
-    } catch (e) {
-      print('❌ Tablo sütun kontrol hatası: $e');
-    }
   }
 
   // ✅ YENİ: Sadece veritabanından test yükleme
@@ -2049,12 +1796,17 @@ class AppState extends ChangeNotifier {
   }
 
   void _startConnectionMonitor() {
-    _connectionMonitorTimer?.cancel();
-    _connectionMonitorTimer = Timer.periodic(Duration(seconds: 10), (timer) {
-      if (!bt.isConnected && isConnected && !isReconnecting) {
-        _handleConnectionLost();
-      }
-    });
+    // ❌ ESKİ KOD: _connectionMonitorTimer?.cancel(); ...
+    // ✅ YENİ KOD: TimerService kullanımı
+    _timerService.startPeriodic(
+      'connection_monitor',
+      const Duration(seconds: 10),
+      (timer) {
+        if (!bt.isConnected && isConnected && !isReconnecting) {
+          _handleConnectionLost();
+        }
+      },
+    );
   }
 
   void _handleConnectionLost() {
@@ -2176,11 +1928,15 @@ class AppState extends ChangeNotifier {
     // ✅ YENİ: Test protokolü çalışırken test modu raporunu parse etme
     if (!isTesting && _currentTestState == TestState.idle) {
       // Test modu raporu başlangıcı (SADECE test protokolü çalışmıyorsa)
-      if (msg.contains("===== TEST BİTİŞ RAPORU =====") &&
-          !_waitingForTestModuRaporu) {
+      if (msg.contains("===== TEST BİTİŞ RAPORU =====")) {
+        // Eğer zaten bekliyorsak bile, yeni başlık geldiyse eskisini çöpe at ve yenisine başla!
+        if (_waitingForTestModuRaporu) {
+          logs.add("⚠️ Yarım kalan rapor silindi, yeni rapor alınıyor...");
+        }
+
         logs.add("TEST BİTİŞ RAPORU ALINDI - Parse ediliyor");
         _waitingForTestModuRaporu = true;
-        _collectedTestModuRaporu = '';
+        _collectedTestModuRaporu = ''; // Buffer'ı temizle
       }
 
       // Test modu raporu toplama (SADECE test protokolü çalışmıyorsa)
@@ -2330,16 +2086,10 @@ class AppState extends ChangeNotifier {
   }
 
   void enforceK1K2Rules() {
-    // Eğer mod pasifse K1 ve K2 daima false olmalı
+    // Eğer mod pasifse K1 ve K2 daima false olmalı (Burası kalmalı)
     if (!isK1K2Mode) {
       valveStates['N435'] = false;
       valveStates['N439'] = false;
-    }
-
-    // Güvenlik: Aynı anda hem K1 hem K2 aktif olamaz
-    if (valveStates['N435'] == true && valveStates['N439'] == true) {
-      valveStates['N439'] = false;
-      logs.add('[GÜVENLİK] K1 ve K2 aynı anda aktif olamaz - K2 kapatıldı');
     }
   }
 
@@ -2362,14 +2112,8 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
-    _connectionMonitorTimer?.cancel();
-    _testModeTimer?.cancel();
-    // ✅ YENİ EKLENDİ: Valf güncelleme timer'ını temizle
-    _testModeValveUpdateTimer?.cancel();
+    _timerService.cancelAll(); // ✅ TEK SATIRDA HEPSİNİ TEMİZLE
     _sub?.cancel();
-    _operationTimer?.cancel();
-    _testTimer?.cancel();
-    _phaseTimer?.cancel();
     bt.dispose();
     super.dispose();
   }

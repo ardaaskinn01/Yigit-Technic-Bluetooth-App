@@ -53,24 +53,24 @@ class _TestScreenState extends State<TestScreen> {
   void _onTestCompleted(TestVerisi test) {
     print('[DEBUG] _onTestCompleted called: ${test.testAdi}');
 
+    // 🛡️ KORUMA 1: Eğer widget ekranda değilse işlemi durdur
+    if (!mounted) return;
+
     // Aynı test için callback birden fazla kez tetiklenirse engelle
     if (_lastCompletedTest?.testAdi == test.testAdi &&
         _lastCompletedTest!.tarih.difference(test.tarih).inSeconds < 5) {
-      print('[DEBUG] Aynı test için callback zaten tetiklenmiş, engellendi');
       return;
     }
 
     _lastCompletedTest = test;
 
-    if (_isDialogShowing) {
-      print('[DEBUG] Dialog already showing, skipping');
-      return;
-    }
+    if (_isDialogShowing) return;
 
     _isDialogShowing = true;
-    print('[DEBUG] Showing completion dialog for: ${test.testAdi}');
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 🛡️ KORUMA 2: Callback çalışana kadar ekran kapanmış olabilir
+      if (!mounted) return;
       _showDeviceResultDialog(test);
     });
   }
@@ -160,13 +160,15 @@ class _TestScreenState extends State<TestScreen> {
             TextButton(
               child: const Text("RAPORU GÖRÜNTÜLE"),
               onPressed: () {
-                Navigator.of(dialogContext).pop();
+                Navigator.of(dialogContext).pop(); // Dialog context'i güvenlidir
                 _isDialogShowing = false;
+
+                // 🛡️ KORUMA 4: Ana ekrana push yapmadan önce kontrol
+                if (!mounted) return;
+
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => RaporDetayEkrani(test: test),
-                  ),
+                  MaterialPageRoute(builder: (_) => RaporDetayEkrani(test: test)),
                 );
               },
             ),
@@ -262,6 +264,7 @@ class _TestScreenState extends State<TestScreen> {
                     onPressed: canStartTest ? () async {
                       final name = _nameController.text.trim();
                       if (name.isEmpty) {
+                        // Burası senkron olduğu için sorun yok
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text("Lütfen test adı girin"),
@@ -269,7 +272,15 @@ class _TestScreenState extends State<TestScreen> {
                         );
                         return;
                       }
+
+                      // Asenkron işlem başlıyor
                       await app.startFullTest(name);
+
+                      // 🛡️ KORUMA 3: startFullTest bittiğinde kullanıcı hala burada mı?
+                      if (!mounted) return;
+
+                      // Eğer burada context kullanan (SnackBar, Dialog vs) bir kod yazacaksanız
+                      // mutlaka yukarıdaki mounted kontrolünden sonra yazmalısınız.
                     } : null,
                     icon: const Icon(Icons.play_arrow, color: Colors.white),
                     label: const Text("Başlat",

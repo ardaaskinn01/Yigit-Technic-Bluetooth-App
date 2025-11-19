@@ -9,6 +9,10 @@ class DatabaseService {
 
   static Database? _database;
 
+  // ✅ YENİ: Veritabanı versiyonu. Tabloda değişiklik yapınca bunu 1 artırın.
+  // Örneğin: DetayliFazVerileri sütunu için 2 yaptık.
+  static const int _databaseVersion = 2;
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
@@ -20,36 +24,24 @@ class DatabaseService {
       String path = join(await getDatabasesPath(), 'mekatronik_tests.db');
       print('[DATABASE] Veritabanı yolu: $path');
 
-      // Dizin erişimini test et
-      final databaseDir = await getDatabasesPath();
-      print('[DATABASE] Dizin erişilebilir: $databaseDir');
-
       return await openDatabase(
         path,
-        version: 1,
-        onCreate: _createDatabase,
+        version: _databaseVersion, // ✅ Sabit sayı yerine değişken
+        onCreate: _createDatabase, // İlk kez yükleyenler için
+        onUpgrade: _onUpgrade,     // ✅ Güncelleme yapanlar için
         onOpen: (db) {
-          print('[DATABASE] Veritabanı başarıyla açıldı');
+          print('[DATABASE] Veritabanı açıldı (Versiyon: $_databaseVersion)');
         },
       );
     } catch (e) {
       print('[DATABASE] ❌ Veritabanı başlatma hatası: $e');
-
-      // Daha spesifik hata mesajları
-      if (e.toString().contains('permission') || e.toString().contains('izin')) {
-        print('[DATABASE] ⚠️ STORAGE İZİN HATASI! Lütfen uygulama izinlerini kontrol edin.');
-      }
-
       rethrow;
     }
   }
 
-  Future<void> createDatabase(Database db, int version) async {
-    await _createDatabase(db, version);
-  }
-
+  // İlk kurulumda çalışır (Temiz kurulum)
   Future<void> _createDatabase(Database db, int version) async {
-    print('[DATABASE] Tablo oluşturuluyor...');
+    print('[DATABASE] Tablo ilk kez oluşturuluyor...');
     await db.execute('''
     CREATE TABLE tests(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,10 +56,39 @@ class DatabaseService {
       DetayliFazVerileri TEXT
     )
   ''');
-    print('[DATABASE] Tablo başarıyla oluşturuldu');
+    print('[DATABASE] Tablo v$version olarak oluşturuldu');
   }
 
-  // Test ekleme
+  // ✅ YENİ: Migrasyon (Yükseltme) Mantığı
+  // Veri kaybı olmadan tabloyu günceller
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    print('[DATABASE] Veritabanı yükseltiliyor: v$oldVersion -> v$newVersion');
+
+    // Versiyon 1'den 2'ye geçiş (Örnek: DetayliFazVerileri eklendi)
+    if (oldVersion < 2) {
+      print('[DATABASE] Migrasyon v2: DetayliFazVerileri sütunu ekleniyor...');
+      try {
+        // Sütun zaten var mı kontrol et (Hata almamak için)
+        var columns = await db.rawQuery('PRAGMA table_info(tests)');
+        bool hasColumn = columns.any((c) => c['name'] == 'DetayliFazVerileri');
+
+        if (!hasColumn) {
+          // ⚠️ ALTER TABLE ile veri silmeden sütun ekleme
+          await db.execute('ALTER TABLE tests ADD COLUMN DetayliFazVerileri TEXT');
+          print('[DATABASE] ✅ DetayliFazVerileri sütunu başarıyla eklendi.');
+        }
+      } catch (e) {
+        print('[DATABASE] ❌ v2 Migrasyon hatası: $e');
+      }
+    }
+
+    // Gelecekte v3 yaparsanız buraya:
+    // if (oldVersion < 3) { ... }
+  }
+
+  // ... insertTest, getTests metodları aynen kalacak ...
+
+  // ... insertTest metodu ...
   Future<int> insertTest(TestVerisi test) async {
     final db = await database;
 
@@ -108,7 +129,7 @@ class DatabaseService {
     }
   }
 
-  // Tüm testleri getir
+  // ... getTests metodu ...
   Future<List<TestVerisi>> getTests() async {
     final db = await database;
 
@@ -135,46 +156,7 @@ class DatabaseService {
     }
   }
 
-  Future<void> recreateTable() async {
-    final db = await database;
-    try {
-      await db.execute('DROP TABLE IF EXISTS tests');
-      await _createDatabase(db, 1);
-      print('[DATABASE] Tablo başarıyla yeniden oluşturuldu');
-
-      // Tablo oluştuktan sonra kontrol et
-      final exists = await isTableExists();
-      print('[DATABASE] Tablo kontrolü: ${exists ? "VAR" : "YOK"}');
-
-      if (exists) {
-        // Tablo sütunlarını kontrol et
-        final columns = await db.rawQuery('PRAGMA table_info(tests)');
-        print('[DATABASE] Tablo sütunları:');
-        for (final column in columns) {
-          print('   - ${column['name']} (${column['type']})');
-        }
-      }
-    } catch (e) {
-      print('[DATABASE] ❌ Tablo yeniden oluşturma hatası: $e');
-      rethrow;
-    }
-  }
-
-  // Test silme
-  Future<void> deleteTest(int id) async {
-    final db = await database;
-    await db.delete('tests', where: 'id = ?', whereArgs: [id]);
-    print('[DATABASE] Test silindi: ID $id');
-  }
-
-  // Tüm testleri silme
-  Future<void> deleteAllTests() async {
-    final db = await database;
-    await db.delete('tests');
-    print('[DATABASE] Tüm testler silindi');
-  }
-
-  // ✅ VERİTABANI BİLGİLERİNİ GETİR
+  // ... Diğer yardımcı metodlar (getDatabaseInfo vb.) ...
   Future<Map<String, dynamic>> getDatabaseInfo() async {
     final db = await database;
 
@@ -245,9 +227,18 @@ class DatabaseService {
     }
   }
 
-  // ✅ VERİTABANI YOLUNU GETİR (Debug için)
   Future<String> getDatabasePath() async {
     final db = await database;
     return db.path;
+  }
+
+  Future<void> deleteAllTests() async {
+    final db = await database;
+    await db.delete('tests');
+  }
+
+  Future<void> deleteTest(int id) async {
+    final db = await database;
+    await db.delete('tests', where: 'id = ?', whereArgs: [id]);
   }
 }

@@ -63,10 +63,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showTestModuRaporu(TestModuRaporu rapor) {
-    // ✅ TÜM test modları için dialog göster (sadece T8 değil)
-    if (_dialogGosteriliyor) {
-      return;
-    }
+    // 🛡️ KORUMA 1: Widget canlı mı?
+    if (!mounted) return;
+
+    if (_dialogGosteriliyor) return;
 
     _dialogGosteriliyor = true;
 
@@ -77,11 +77,15 @@ class _HomeScreenState extends State<HomeScreen> {
         rapor: rapor,
         onKapat: () {
           _dialogGosteriliyor = false;
+          // Dialog'un kendi context'i olduğu için burada mounted şart değil ama iyi pratik:
           Navigator.of(context).pop();
         },
       ),
     ).then((value) {
-      _dialogGosteriliyor = false;
+      // 🛡️ KORUMA 2: Dialog kapandıktan sonra widget hala canlı mı?
+      if (mounted) {
+        _dialogGosteriliyor = false;
+      }
     });
   }
 
@@ -402,6 +406,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ],
                             ),
                           );
+                          if (!mounted) return;
                           if (confirm == true) app.startSokmeModu();
                         },
                         icon: const Icon(
