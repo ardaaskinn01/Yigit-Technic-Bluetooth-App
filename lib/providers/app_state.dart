@@ -39,6 +39,7 @@ class AppState extends ChangeNotifier {
       _currentTestState == TestState.idle ||
       _currentTestState == TestState.completed ||
       _currentTestState == TestState.error;
+  int _lastActiveTestMode = 0;
 
   bool get canPauseTest => _currentTestState == TestState.running;
   bool get canResumeTest => _currentTestState == TestState.paused;
@@ -508,7 +509,7 @@ class AppState extends ChangeNotifier {
 
   void startTestMode(int mode) {
     if (mode < 1 || mode > 8) return;
-
+    _lastActiveTestMode = mode;
     // ✅ EKLENECEK KOD BLOĞU: Eski rapor kalıntılarını temizle
     _waitingForTestModuRaporu = false;
     _collectedTestModuRaporu = '';
@@ -1196,12 +1197,14 @@ class AppState extends ChangeNotifier {
     return hasFazPuanlari && hasToplamPuan;
   }
 
-  void _parseTestModuRaporu(String report) {
+  void _parseTestModuRaporu(String report, int mode) { // ✅ int mode parametresi eklendi
     logs.add("TEST MODU RAPORU PARSE EDİLİYOR...");
 
     try {
-      // ✅ LOGIC SİLİNDİ -> SERVİSE TAŞINDI
-      final rapor = _parserService.parseTestModuRaporu(report, currentTestMode);
+      // ✅ Parametre olarak gelen mode kullanılıyor
+      final rapor = _parserService.parseTestModuRaporu(report, mode);
+
+      _sonTestModuRaporu = rapor;
 
       _sonTestModuRaporu = rapor;
 
@@ -1944,9 +1947,13 @@ class AppState extends ChangeNotifier {
         _collectedTestModuRaporu += msg + '\n';
         if (msg.contains("==========================") ||
             _isTestModuRaporuComplete(_collectedTestModuRaporu)) {
-          // ✅ DÜZELTİLDİ
+
+          // ✅ GÜNCELLENDİ: currentTestMode 0 ise hafızadaki modu kullan
+          int modeToReport = currentTestMode > 0 ? currentTestMode : _lastActiveTestMode;
+
           logs.add("TEST MODU RAPORU TAMAMLANDI");
-          _parseTestModuRaporu(_collectedTestModuRaporu);
+          _parseTestModuRaporu(_collectedTestModuRaporu, modeToReport); // Buraya gönder
+
           _waitingForTestModuRaporu = false;
           _collectedTestModuRaporu = '';
         }

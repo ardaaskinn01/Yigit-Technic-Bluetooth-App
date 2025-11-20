@@ -64,14 +64,14 @@ class ReportParserService {
   /// Test Modu Raporunu parse eder.
   TestModuRaporu parseTestModuRaporu(String report, int currentTestMode) {
     try {
-      // 1. Basınçlar (Regex: Sayıyı yakalamak için daha esnek)
-      // "Min Basınç: 38.0 bar" formatını yakalar
+      // 1. Basınç Değerleri
+      // "Min Basınç: 38.0 bar" satırını bulur, baştaki saati yutar (.*?)
       final minP = _extractDouble(report, r'Min Basınç:.*?([\d.]+)');
       final maxP = _extractDouble(report, r'Max Basınç:.*?([\d.]+)');
       final avgP = _extractDouble(report, r'Ortalama Basınç:.*?([\d.]+)');
 
       // 2. Pompa Süresi
-      // "Toplam Pompa Çalışma Süresi: 0 dk 6 sn" formatı
+      // "Toplam Pompa Çalışma Süresi: 0 dk 6 sn"
       int pompaSn = 0;
       final pompaMatch = RegExp(r'Pompa.*?Süresi:.*?(\d+)\s*dk.*?(\d+)\s*sn').firstMatch(report);
 
@@ -79,42 +79,37 @@ class ReportParserService {
         pompaSn = (int.parse(pompaMatch.group(1) ?? '0') * 60) + int.parse(pompaMatch.group(2) ?? '0');
       }
 
-      // 3. Düşük Basınç Sayısı ve Süresi
-      // Log: "Düşük Basınç (<40 bar) Sayısı: 2" -> Aradaki parantezi yutması için .*? kullanıyoruz
+      // 3. Düşük Basınç Verileri
+      // "(<40 bar)" ifadesini atlayıp sayıyı alır
       final dusukBasincSayisi = _extractInt(report, r'Düşük Basınç.*?Sayısı:.*?(\d+)');
-
-      // Log: "Toplam Düşük Basınç Süresi: 0 sn"
       final dusukBasincSure = _extractInt(report, r'Düşük Basınç Süresi:.*?(\d+)');
 
-      // 4. ✅ DÜZELTİLEN KISIM: Toplam Vites Geçiş Sayısı
-      // Log: "Toplam Vites Geçişi Sayısı: 15"
-      // timestamp olsa bile çalışır çünkü .*? kullanıyoruz
+      // 4. Toplam Vites Geçişi
       final toplamVites = _extractInt(report, r'Toplam Vites Geçişi Sayısı:.*?(\d+)');
 
-      // 5. ✅ DÜZELTİLEN KISIM: Vites Detayları
-      // Log'da girinti (indentation) var: "    1. Vites: 2"
+      // 5. Vites Geçiş Detayları (EN ÖNEMLİ KISIM)
       final vitesGecisleri = <String, int>{};
 
       // Regex Açıklaması:
-      // \s* -> Başta isteğe bağlı boşluklar
-      // (\d+) -> Vites numarası (1, 2, 3...)
-      // \. -> Nokta karakteri
-      // \s*Vites: -> " Vites:" yazısı
-      // \s*(\d+) -> Geçiş sayısı
-      final vitesRegex = RegExp(r'\s*(\d+)\.\s*Vites:\s*(\d+)');
+      // .*?       -> Satır başındaki tarih ve her şeyi yut
+      // (\d+)     -> Vites numarasını yakala (1, 2, 3...)
+      // \.        -> Nokta
+      // \s*Vites: -> " Vites:" kelimesi
+      // \s*(\d+)  -> Sonuç sayısını yakala
 
+      final vitesRegex = RegExp(r'.*?(\d+)\.\s*Vites:\s*(\d+)');
       for (final match in vitesRegex.allMatches(report)) {
         vitesGecisleri['V${match.group(1)}'] = int.parse(match.group(2)!);
       }
 
-      // R Vites için özel regex
-      // Log: "    R Vites: 1"
-      final rVitesMatch = RegExp(r'\s*R\s*Vites:\s*(\d+)', caseSensitive: false).firstMatch(report);
+      // R Vites için özel kontrol (Tarih saat olsa bile yakalar)
+      // Örnek: "14:48:03.379     R Vites: 1"
+      final rVitesMatch = RegExp(r'.*?R\s*Vites:\s*(\d+)', caseSensitive: false).firstMatch(report);
       if (rVitesMatch != null) {
         vitesGecisleri['VR'] = int.parse(rVitesMatch.group(1)!);
       }
 
-      // Eğer toplam vites 0 çıktıysa ama detaylar varsa, detayları topla
+      // Eğer ana toplam 0 geldiyse (okunamadıysa), detayları toplayarak düzelt
       int finalToplamVites = toplamVites;
       if (finalToplamVites == 0 && vitesGecisleri.isNotEmpty) {
         finalToplamVites = vitesGecisleri.values.fold(0, (sum, val) => sum + val);
@@ -132,9 +127,10 @@ class ReportParserService {
         toplamVitesGecisSayisi: finalToplamVites,
         vitesGecisleri: vitesGecisleri,
       );
+
     } catch (e) {
       print("Test modu raporu parse hatası: $e");
-      // Hata durumunda boş/güvenli nesne döndür
+      // Hata durumunda güvenli boş nesne döndür
       return TestModuRaporu(
         tarih: DateTime.now(),
         testModu: currentTestMode,
@@ -146,19 +142,25 @@ class ReportParserService {
     }
   }
 
+  // Yardımcı: Double parse (Hata vermez, 0.0 döner)
   double _extractDouble(String text, String pattern) {
-    final match = RegExp(pattern, caseSensitive: false).firstMatch(text);
-    if (match != null) {
-      return double.tryParse(match.group(1) ?? '0') ?? 0.0;
-    }
+    try {
+      final match = RegExp(pattern, caseSensitive: false, multiLine: true).firstMatch(text);
+      if (match != null) {
+        return double.tryParse(match.group(1) ?? '0') ?? 0.0;
+      }
+    } catch (_) {}
     return 0.0;
   }
 
+  // Yardımcı: Int parse (Hata vermez, 0 döner)
   int _extractInt(String text, String pattern) {
-    final match = RegExp(pattern, caseSensitive: false).firstMatch(text);
-    if (match != null) {
-      return int.tryParse(match.group(1) ?? '0') ?? 0;
-    }
+    try {
+      final match = RegExp(pattern, caseSensitive: false, multiLine: true).firstMatch(text);
+      if (match != null) {
+        return int.tryParse(match.group(1) ?? '0') ?? 0;
+      }
+    } catch (_) {}
     return 0;
   }
 
