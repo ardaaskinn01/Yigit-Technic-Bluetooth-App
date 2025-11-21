@@ -169,7 +169,7 @@ class AppState extends ChangeNotifier {
   double faz2Pompa = 0;
   Map<String, double> faz3Vitesler = {};
   double faz4Pompa = 0;
-
+  bool _isManualTestMode = false;
   bool isTesting = false;
   double phaseProgress = 0.0;
   String phaseStatusMessage = "";
@@ -509,6 +509,8 @@ class AppState extends ChangeNotifier {
 
   void startTestMode(int mode) {
     if (mode < 1 || mode > 8) return;
+
+    _isManualTestMode = true; // ✅ YENİ: Kullanıcı manuel başlattı işaretle
     _lastActiveTestMode = mode;
     // ✅ EKLENECEK KOD BLOĞU: Eski rapor kalıntılarını temizle
     _waitingForTestModuRaporu = false;
@@ -714,13 +716,8 @@ class AppState extends ChangeNotifier {
     // Valf güncellemelerini durdur
     _valveUpdateInProgress = true;
 
-    // ❌ ESKİ KOD: _testModeValveUpdateTimer?.cancel();
-    // ✅ YENİ KOD: Servis üzerinden iptal et
+    // Timer'ı iptal et
     _timerService.cancel('valve_update');
-
-    // Rapor beklentisini sıfırla
-    _waitingForTestModuRaporu = false;
-    _collectedTestModuRaporu = '';
 
     try {
       // Sistem durumunu sıfırla
@@ -732,7 +729,7 @@ class AppState extends ChangeNotifier {
       // Valf durumlarını sıfırla
       _updateValvesFromBluetoothData();
 
-      // Bluetooth komutlarını gönder
+      // Bluetooth komutlarını gönder (Durdurma komutları)
       sendCommand("S");
       Future.delayed(const Duration(milliseconds: 100), () {
         sendCommand("s");
@@ -740,7 +737,7 @@ class AppState extends ChangeNotifier {
       });
 
       connectionMessage = "Test modu kapatıldı";
-      logs.add("Test modu durduruldu - Sistem sıfırlandı");
+      logs.add("Test modu durduruldu - Rapor bekleniyor..."); // Logu güncelledim
 
       notifyListeners();
     } finally {
@@ -750,6 +747,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> startFullTest(String testAdi) async {
     if (isTesting) return;
+
+    _isManualTestMode = false;
 
     _testResultSaved = false;
     _isSavingProcessActive = false;
@@ -1351,23 +1350,48 @@ class AppState extends ChangeNotifier {
   Function(TestVerisi)? onTestCompleted;
 
   void stopTest() {
-    // Eğer zaten bittiyse veya kaydedildiyse durdurma komutu işleme
-    if (_testResultSaved ||
+    // 1. DURDURULAMAZ DURUMLAR:
+    // Eğer test zaten durmuş, bitmiş veya zaten iptal edilmişse işlem yapma.
+    if (_currentTestState == TestState.idle ||
         _currentTestState == TestState.completed ||
-        _currentTestState == TestState.idle) {
+        _currentTestState == TestState.cancelled ||
+        _currentTestState == TestState.error) {
+      logs.add('⚠️ Test zaten durmuş durumda, durdurma işlemi pas geçildi.');
       return;
     }
 
-    _setTestState(TestState.cancelled);
+    logs.add('🛑 Test durduruluyor...');
+
+    // 2. STATE GÜNCELLEME:
+    // State'i hemen Cancelled yap ki UI güncellensin
+    _setTestState(TestState.cancelled, message: "Kullanıcı durdurdu");
+
+    // 3. DONANIM KOMUTU:
+    // Arduino'ya acil durdurma komutu gönder
     sendCommand("aq");
 
-    // İptal kaydını sadece henüz bir şey kaydedilmediyse yap
-    if (!_testResultSaved) {
-      _saveCancelledTest();
+    // 4. ASYNC KİLİDİ KIRMA (EN ÖNEMLİSİ):
+    // startFullTest fonksiyonundaki 'await' kilidini hata fırlatarak kırıyoruz.
+    // Böylece kod 'test bitti' noktasına ulaşabiliyor.
+    if (_testCompletionCompleter != null && !_testCompletionCompleter!.isCompleted) {
+      _testCompletionCompleter!.completeError(Exception("Kullanıcı tarafından durduruldu"));
     }
 
+    // 5. KAYIT İŞLEMİ:
+    // Eğer daha önce başarılı bir kayıt yapılmadıysa "İptal Edildi" olarak kaydet.
+    // Eğer _testResultSaved = true ise (yani zaten bir şey kaydettiysek), tekrar iptal kaydı atma.
+    if (!_testResultSaved) {
+      _saveCancelledTest();
+    } else {
+      logs.add('ℹ️ Test verisi zaten kaydedildiği için iptal kaydı oluşturulmadı.');
+    }
+
+    // 6. SİSTEM VE TIMER TEMİZLİĞİ:
+    // Timer'ları öldür ve sistemi boşa al.
     _resetAllTimers();
     _resetSystemAfterTest();
+
+    logs.add('✅ Test başarıyla durduruldu ve sistem sıfırlandı.');
   }
 
   // ✅ YENİ: İptal edilen testi kaydetme metodu
@@ -1931,31 +1955,40 @@ class AppState extends ChangeNotifier {
     // ✅ YENİ: Test protokolü çalışırken test modu raporunu parse etme
     if (!isTesting && _currentTestState == TestState.idle) {
       // Test modu raporu başlangıcı (SADECE test protokolü çalışmıyorsa)
-      if (msg.contains("===== TEST BİTİŞ RAPORU =====")) {
-        // Eğer zaten bekliyorsak bile, yeni başlık geldiyse eskisini çöpe at ve yenisine başla!
-        if (_waitingForTestModuRaporu) {
-          logs.add("⚠️ Yarım kalan rapor silindi, yeni rapor alınıyor...");
+      if (_isManualTestMode) {
+        // Test modu raporu başlangıcı
+        if (msg.contains("===== TEST BİTİŞ RAPORU =====")) {
+          if (_waitingForTestModuRaporu) {
+            logs.add("⚠️ Yarım kalan rapor silindi, yeni rapor alınıyor...");
+          }
+
+          logs.add("TEST BİTİŞ RAPORU ALINDI (Manuel Mod) - Parse ediliyor");
+          _waitingForTestModuRaporu = true;
+          _collectedTestModuRaporu = '';
         }
 
-        logs.add("TEST BİTİŞ RAPORU ALINDI - Parse ediliyor");
-        _waitingForTestModuRaporu = true;
-        _collectedTestModuRaporu = ''; // Buffer'ı temizle
-      }
+        // Test modu raporu toplama
+        if (_waitingForTestModuRaporu) {
+          _collectedTestModuRaporu += msg + '\n';
 
-      // Test modu raporu toplama (SADECE test protokolü çalışmıyorsa)
-      if (_waitingForTestModuRaporu) {
-        _collectedTestModuRaporu += msg + '\n';
-        if (msg.contains("==========================") ||
-            _isTestModuRaporuComplete(_collectedTestModuRaporu)) {
+          if (msg.contains("==========================") ||
+              _isTestModuRaporuComplete(_collectedTestModuRaporu)) {
 
-          // ✅ GÜNCELLENDİ: currentTestMode 0 ise hafızadaki modu kullan
-          int modeToReport = currentTestMode > 0 ? currentTestMode : _lastActiveTestMode;
+            int modeToReport = currentTestMode > 0
+                ? currentTestMode
+                : _lastActiveTestMode;
 
-          logs.add("TEST MODU RAPORU TAMAMLANDI");
-          _parseTestModuRaporu(_collectedTestModuRaporu, modeToReport); // Buraya gönder
+            logs.add("TEST MODU RAPORU TAMAMLANDI");
 
-          _waitingForTestModuRaporu = false;
-          _collectedTestModuRaporu = '';
+            // Raporu parse et ve göster
+            _parseTestModuRaporu(_collectedTestModuRaporu, modeToReport);
+
+            // ✅ İŞTE BURADA KAPATIYORUZ:
+            // Raporu aldık, işimiz bitti. Artık temizleyebiliriz.
+            _waitingForTestModuRaporu = false;
+            _collectedTestModuRaporu = '';
+            _isManualTestMode = false; // ✅ BU SATIRI AKTİF EDİN (Comment'ten çıkarın)
+          }
         }
       }
     }

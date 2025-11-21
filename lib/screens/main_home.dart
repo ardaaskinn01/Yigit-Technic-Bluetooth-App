@@ -99,26 +99,22 @@ class _MainHomeScreenState extends State<MainHomeScreen>
       ),
       body: Row(
         children: [
-          // 🔹 Sol taraf (%65)
           Expanded(
             flex: 65,
             child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF001F3F), Color(0xFF003366), Color(0xFF004C99)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    const PressureMonitorWidget(),
-                    const SizedBox(height: 12),
-                    _buildValfSection(app),
-                  ],
-                ),
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                children: [
+                  const Expanded(
+                    flex: 2, // PressureMonitor için %75
+                    child: PressureMonitorWidget(),
+                  ),
+                  const SizedBox(height: 2),
+                  Expanded(
+                    flex: 3, // ValveStatusPanel için %25
+                    child: _buildValfSection(app),
+                  ),
+                ],
               ),
             ),
           ),

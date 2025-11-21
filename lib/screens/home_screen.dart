@@ -781,7 +781,6 @@ class _HomeScreenState extends State<HomeScreen> {
               int mode = index + 1;
               bool isActive = app.currentTestMode == mode;
               bool isTestRunning = app.isTestModeActive && app.currentTestMode != 8;
-              bool isTest7 = mode == 7;
               bool isTest8 = mode == 8;
 
               // ✅ BUTON DAVRANIŞI:
@@ -790,14 +789,11 @@ class _HomeScreenState extends State<HomeScreen> {
               // - T8 her zaman tıklanabilir (durdurma butonu)
               bool isButtonEnabled = !isTestRunning || isTest8 || isActive;
 
-              Color activeColor = isTest7
-                  ? Colors.blueAccent
-                  : isTest8
+              Color activeColor = isTest8
                   ? Colors.redAccent
                   : Colors.amber;
-              Color inactiveColor = isTest7
-                  ? Colors.blue
-                  : isTest8
+
+              Color inactiveColor = isTest8
                   ? Colors.red
                   : Colors.blueGrey.withOpacity(0.7);
 
@@ -866,15 +862,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           fontSize: isTest8 ? 8 : 9,
                         ),
                       ),
-                      if (isTest7)
-                        Text(
-                          "SÖKME",
-                          style: TextStyle(
-                            color: isButtonEnabled ? Colors.white : Colors.grey,
-                            fontSize: 7,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
                       if (isTest8)
                         Text(
                           "DURDUR",

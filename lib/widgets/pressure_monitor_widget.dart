@@ -276,7 +276,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
     Color pressureColor = currentPressure < 42.0 ? Colors.redAccent : Colors.greenAccent;
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -492,7 +492,7 @@ class _PressureMonitorWidgetState extends State<PressureMonitorWidget> {
 
           // 📊 ÖZELLEŞTİRİLMİŞ Y EKSENLİ GRAFİK
           SizedBox(
-            height: 200,
+            height: 210,
             child: GestureDetector(
               onHorizontalDragStart: _onChartDragStart,
               onHorizontalDragUpdate: _onChartDragUpdate,

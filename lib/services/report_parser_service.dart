@@ -61,55 +61,54 @@ class ReportParserService {
     );
   }
 
-  /// Test Modu Raporunu parse eder.
   TestModuRaporu parseTestModuRaporu(String report, int currentTestMode) {
     try {
-      // 1. Basınç Değerleri
-      // "Min Basınç: 38.0 bar" satırını bulur, baştaki saati yutar (.*?)
-      final minP = _extractDouble(report, r'Min Basınç:.*?([\d.]+)');
-      final maxP = _extractDouble(report, r'Max Basınç:.*?([\d.]+)');
-      final avgP = _extractDouble(report, r'Ortalama Basınç:.*?([\d.]+)');
+      // 1. Pressure Values
+      // Uses .*? to skip timestamp at start of line
+      final minP = _extractDouble(report, r'.*?Min Basınç:.*?([\d.]+)');
+      final maxP = _extractDouble(report, r'.*?Max Basınç:.*?([\d.]+)');
+      final avgP = _extractDouble(report, r'.*?Ortalama Basınç:.*?([\d.]+)');
 
-      // 2. Pompa Süresi
-      // "Toplam Pompa Çalışma Süresi: 0 dk 6 sn"
+      // 2. Pump Duration
+      // Matches: "14:48:03.379 Toplam Pompa Çalışma Süresi: 0 dk 6 sn"
       int pompaSn = 0;
-      final pompaMatch = RegExp(r'Pompa.*?Süresi:.*?(\d+)\s*dk.*?(\d+)\s*sn').firstMatch(report);
+      final pompaMatch = RegExp(r'.*?Pompa.*?Süresi:.*?(\d+)\s*dk.*?(\d+)\s*sn').firstMatch(report);
 
       if (pompaMatch != null) {
         pompaSn = (int.parse(pompaMatch.group(1) ?? '0') * 60) + int.parse(pompaMatch.group(2) ?? '0');
       }
 
-      // 3. Düşük Basınç Verileri
-      // "(<40 bar)" ifadesini atlayıp sayıyı alır
-      final dusukBasincSayisi = _extractInt(report, r'Düşük Basınç.*?Sayısı:.*?(\d+)');
-      final dusukBasincSure = _extractInt(report, r'Düşük Basınç Süresi:.*?(\d+)');
+      // 3. Low Pressure Stats
+      // Matches: "Düşük Basınç (<40 bar) Sayısı: 2"
+      final dusukBasincSayisi = _extractInt(report, r'.*?Düşük Basınç.*?Sayısı:.*?(\d+)');
+      final dusukBasincSure = _extractInt(report, r'.*?Düşük Basınç Süresi:.*?(\d+)');
 
-      // 4. Toplam Vites Geçişi
-      final toplamVites = _extractInt(report, r'Toplam Vites Geçişi Sayısı:.*?(\d+)');
+      // 4. Total Gear Shifts
+      final toplamVites = _extractInt(report, r'.*?Toplam Vites Geçişi Sayısı:.*?(\d+)');
 
-      // 5. Vites Geçiş Detayları (EN ÖNEMLİ KISIM)
+      // 5. Gear Shift Details (CRITICAL FIX)
       final vitesGecisleri = <String, int>{};
 
-      // Regex Açıklaması:
-      // .*?       -> Satır başındaki tarih ve her şeyi yut
-      // (\d+)     -> Vites numarasını yakala (1, 2, 3...)
-      // \.        -> Nokta
-      // \s*Vites: -> " Vites:" kelimesi
-      // \s*(\d+)  -> Sonuç sayısını yakala
+      // Regex Explanation:
+      // .*?        -> Match any character (timestamp, whitespace) lazily until...
+      // (\d+)      -> Capture the Gear Number (1, 2, etc.)
+      // \.         -> Literal dot
+      // \s*Vites:  -> Whitespace followed by "Vites:"
+      // \s*(\d+)   -> Capture the count value
 
       final vitesRegex = RegExp(r'.*?(\d+)\.\s*Vites:\s*(\d+)');
       for (final match in vitesRegex.allMatches(report)) {
         vitesGecisleri['V${match.group(1)}'] = int.parse(match.group(2)!);
       }
 
-      // R Vites için özel kontrol (Tarih saat olsa bile yakalar)
-      // Örnek: "14:48:03.379     R Vites: 1"
+      // Special Regex for Reverse Gear (R)
+      // Matches: "14:48:03.381    R Vites: 1"
       final rVitesMatch = RegExp(r'.*?R\s*Vites:\s*(\d+)', caseSensitive: false).firstMatch(report);
       if (rVitesMatch != null) {
         vitesGecisleri['VR'] = int.parse(rVitesMatch.group(1)!);
       }
 
-      // Eğer ana toplam 0 geldiyse (okunamadıysa), detayları toplayarak düzelt
+      // Fallback: If Total Count is 0 but we found details, sum them up
       int finalToplamVites = toplamVites;
       if (finalToplamVites == 0 && vitesGecisleri.isNotEmpty) {
         finalToplamVites = vitesGecisleri.values.fold(0, (sum, val) => sum + val);
@@ -130,7 +129,7 @@ class ReportParserService {
 
     } catch (e) {
       print("Test modu raporu parse hatası: $e");
-      // Hata durumunda güvenli boş nesne döndür
+      // Return safe empty object on error
       return TestModuRaporu(
         tarih: DateTime.now(),
         testModu: currentTestMode,
@@ -142,7 +141,7 @@ class ReportParserService {
     }
   }
 
-  // Yardımcı: Double parse (Hata vermez, 0.0 döner)
+  // Helper: Extract Double safely
   double _extractDouble(String text, String pattern) {
     try {
       final match = RegExp(pattern, caseSensitive: false, multiLine: true).firstMatch(text);
@@ -153,7 +152,7 @@ class ReportParserService {
     return 0.0;
   }
 
-  // Yardımcı: Int parse (Hata vermez, 0 döner)
+  // Helper: Extract Int safely
   int _extractInt(String text, String pattern) {
     try {
       final match = RegExp(pattern, caseSensitive: false, multiLine: true).firstMatch(text);

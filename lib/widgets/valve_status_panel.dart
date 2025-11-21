@@ -11,29 +11,26 @@ class ValveStatusPanel extends StatelessWidget {
     final states = app.valveStates;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF0f2027), Color(0xFF203a43), Color(0xFF2c5364)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('🔧 8 Valf Durumu',
-              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
           GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 2,
-            childAspectRatio: 4.8,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
+            childAspectRatio: 6, // Daha dar
+            mainAxisSpacing: 2, // Daha az boşluk
+            crossAxisSpacing: 6,
             children: [
               _valveItem('N435', 'K1', states['N435'] ?? false),
               _valveItem('N438', 'Vites 6-R', states['N438'] ?? false),
@@ -52,45 +49,52 @@ class ValveStatusPanel extends StatelessWidget {
 
   Widget _valveItem(String name, String func, bool isActive) {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 150), // Daha kısa animasyon
+      duration: const Duration(milliseconds: 120),
       curve: Curves.easeInOut,
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: isActive ? Colors.green.withOpacity(0.15) : Colors.white10,
         border: Border(
           left: BorderSide(
             color: isActive ? Colors.greenAccent : Colors.white24,
-            width: 4,
+            width: 3,
           ),
         ),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
         children: [
-          // Durum göstergesi - daha stabil
           Container(
-            width: 10,
-            height: 10,
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isActive ? Colors.greenAccent : Colors.grey,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(name,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        fontSize: 13)),
-                Text(func,
-                    style: const TextStyle(
-                        fontSize: 10, color: Colors.white70),
-                    overflow: TextOverflow.ellipsis),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    fontSize: 11,
+                  ),
+                ),
+                Text(
+                  func,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    color: Colors.white70,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
               ],
             ),
           ),
